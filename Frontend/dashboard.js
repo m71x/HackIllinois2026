@@ -302,13 +302,37 @@ document.getElementById("search-btn").addEventListener("click", runSearch);
 document.getElementById("search-input").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
 
 async function runSearch() {
-  const query = document.getElementById("search-input").value.trim();
+  const query = document.getElementById("search-input").value.trim().toLowerCase();
   const resDiv = document.getElementById("search-results");
   if (!query) return;
 
   resDiv.innerHTML = `<div class="spinner"></div>`;
   const data = await postJSON("/narratives/search", { query, n_results: 5 });
-  const results = isMockMode ? MOCK_DATA.narratives.map(n => ({ narrative: n, similarity: 0.8 + Math.random() * 0.15 })) : data.results;
+  
+  let results = [];
+  if (isMockMode) {
+    // Filter mock data by text match
+    const matches = MOCK_DATA.narratives.filter(n => 
+      n.name.toLowerCase().includes(query) || 
+      n.description.toLowerCase().includes(query)
+    );
+    
+    // Sort relevance arbitrarily for mockup
+    results = matches.map((n, i) => ({ 
+      narrative: n, 
+      similarity: 0.95 - (i * 0.05) 
+    }));
+    
+    // Fallback if no exact text match (just return top 2 to simulate fuzzy finding)
+    if (results.length === 0) {
+      results = MOCK_DATA.narratives.slice(0, 2).map((n, i) => ({ 
+        narrative: n, 
+        similarity: 0.65 - (i * 0.10) 
+      }));
+    }
+  } else {
+    results = data.results;
+  }
 
   resDiv.innerHTML = results.map((r, i) => `
     <div class="search-result" onclick="openNarrativeModal('${r.narrative.id}')">
