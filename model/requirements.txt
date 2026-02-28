@@ -1,0 +1,4 @@
+# Model team dependencies — install locally to develop and deploy
+# Container images are defined in modal_app.py and installed by Modal at deploy time.
+
+modal>=0.67

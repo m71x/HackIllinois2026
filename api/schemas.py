@@ -61,6 +61,48 @@ class NarrativeHistory(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Scrape-and-ingest
+# ---------------------------------------------------------------------------
+
+class ScrapeRequest(BaseModel):
+    lookback_minutes: int = Field(default=60, ge=1, le=10080)
+    max_per_source: int = Field(default=50, ge=1, le=100)
+    sources: list[str] = Field(default=["newsapi", "twitter"])
+    news_query: Optional[str] = None       # None = use default financial query
+    twitter_query: Optional[str] = None    # None = use default financial query
+    dry_run: bool = False
+
+
+class NarrativeTouched(BaseModel):
+    id: str
+    name: str
+    action: Literal["created", "updated"]
+    model_risk: Optional[float]
+    event_count: int
+
+
+class StoryPreview(BaseModel):
+    headline: str
+    source: str
+    body: str
+
+
+class ScrapeRunResult(BaseModel):
+    fetched: int                           # new stories after dedup
+    duplicates_skipped: int                # already seen this session
+    ingested: int                          # successfully processed
+    narratives_created: int
+    narratives_updated: int
+    errors: int
+    duration_seconds: float
+    dedup_cache_size: int                  # total session cache entries
+    per_source: dict                       # {"newsapi": int, "twitter": int}
+    narratives_touched: list[NarrativeTouched]
+    dry_run: bool
+    stories_preview: Optional[list[StoryPreview]] = None  # only on dry_run
+
+
+# ---------------------------------------------------------------------------
 # Ingest
 # ---------------------------------------------------------------------------
 

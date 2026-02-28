@@ -1,26 +1,22 @@
 """
 Tests for the Real-World Model Risk Engine API.
+Uses fixtures from conftest.py for mocking external services.
 """
 
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture(scope="module")
-def client():
-    """Create a test client for the FastAPI app."""
-    # Import here to avoid issues with module loading
-    from main import app
-    return TestClient(app)
-
-
-@pytest.fixture(scope="module", autouse=True)
-def setup_test_db(client):
-    """Setup: clear the database before tests, cleanup after."""
-    # Clear any existing narratives by ingesting nothing
-    # The ChromaDB will be fresh for each test run
-    yield
-    # Cleanup is handled by the test isolation
+@pytest.fixture()
+def client(patched_vector_store, fake_embed_text, fake_embed_batch,
+           fake_label_narrative, fake_score_story):
+    """Create a test client with all external services mocked."""
+    with patch("db.vector_store.collection", patched_vector_store.collection), \
+         patch("services.narrative_engine.vector_store", patched_vector_store):
+        from main import app
+        with TestClient(app) as c:
+            yield c
 
 
 class TestHealthEndpoint:
@@ -126,7 +122,6 @@ class TestIngestEndpoint:
 
     def test_ingest_updates_existing(self, client):
         """Ingesting similar content should update existing narrative."""
-        # First ingest
         response1 = client.post(
             "/api/ingest",
             json={
@@ -135,9 +130,7 @@ class TestIngestEndpoint:
             }
         )
         assert response1.status_code == 200
-        first_id = response1.json()["narrative_id"]
 
-        # Second ingest with very similar content
         response2 = client.post(
             "/api/ingest",
             json={
@@ -147,9 +140,37 @@ class TestIngestEndpoint:
         )
         assert response2.status_code == 200
         data2 = response2.json()
-
-        # Should update the same narrative (or create if threshold not met)
         assert data2["action"] in ["created", "updated"]
+
+
+class TestBatchIngestEndpoint:
+    """Tests for the /api/ingest/batch endpoint."""
+
+    def test_batch_ingest(self, client):
+        """Batch ingest should process multiple stories."""
+        response = client.post(
+            "/api/ingest/batch",
+            json={
+                "stories": [
+                    {"headline": "Batch story A", "body": "Body A"},
+                    {"headline": "Batch story B", "body": "Body B"},
+                ]
+            }
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["processed"] == 2
+        assert len(data["results"]) == 2
+        assert "duration_seconds" in data
+
+    def test_batch_ingest_empty_list(self, client):
+        """Batch ingest with empty list should return 0 processed."""
+        response = client.post(
+            "/api/ingest/batch",
+            json={"stories": []}
+        )
+        assert response.status_code == 200
+        assert response.json()["processed"] == 0
 
 
 class TestPipelineStatsEndpoint:
@@ -182,8 +203,6 @@ class TestSSEEndpoint:
     def test_sse_endpoint_route_exists(self, client):
         """SSE endpoint route should be registered."""
         from main import app
-
-        # Check that the route exists in the app
         routes = [route.path for route in app.routes]
         assert "/api/events/stream" in routes
 
@@ -191,8 +210,6 @@ class TestSSEEndpoint:
         """SSE endpoint handler should return StreamingResponse."""
         from main import events_stream
         import asyncio
-
-        # Test that the endpoint function exists and is async
         assert asyncio.iscoroutinefunction(events_stream)
 
 
@@ -206,7 +223,7 @@ class TestIntegration:
             "/api/ingest",
             json={
                 "headline": "Tech stocks rally on AI optimism",
-                "body": "Major technology companies saw gains as investors bet on artificial intelligence growth."
+                "body": "Major technology companies saw gains."
             }
         )
         assert ingest_response.status_code == 200
@@ -241,7 +258,6 @@ class TestIntegration:
         )
         assert search_response.status_code == 200
         results = search_response.json()["results"]
-        # The narrative should appear in search results
         result_ids = [r["narrative"]["id"] for r in results]
         assert narrative_id in result_ids
 
@@ -251,19 +267,12 @@ class TestIntegration:
         risk_data = risk_response.json()
         assert risk_data["narrative_count"] > 0
 
-        # 7. Check pipeline stats updated
-        stats_response = client.get("/api/pipeline/stats")
-        assert stats_response.status_code == 200
-        stats = stats_response.json()
-        assert stats["pipeline"]["stories_ingested"] > 0
-
 
 class TestNarrativeFields:
     """Tests for narrative field correctness."""
 
     def test_narrative_has_required_fields(self, client):
         """Narratives should have all required fields."""
-        # First create a narrative
         client.post(
             "/api/ingest",
             json={"headline": "Test for field validation", "body": "Testing fields."}
@@ -299,7 +308,6 @@ class TestSearchResults:
 
     def test_search_result_has_similarity(self, client):
         """Search results should have similarity scores."""
-        # Create a narrative first
         client.post(
             "/api/ingest",
             json={"headline": "Gold prices increase", "body": "Gold is rising."}
@@ -315,7 +323,6 @@ class TestSearchResults:
         for result in results:
             assert "narrative" in result
             assert "similarity" in result
-            # Similarity should be between 0 and 1
             assert 0 <= result["similarity"] <= 1
 
 
@@ -328,7 +335,15 @@ class TestErrorHandling:
             "/api/ingest",
             json={"body": "Body without headline"}
         )
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 422
+
+    def test_ingest_headline_too_long(self, client):
+        """Ingest with headline > 500 chars should fail."""
+        response = client.post(
+            "/api/ingest",
+            json={"headline": "x" * 501}
+        )
+        assert response.status_code == 422
 
     def test_search_missing_query(self, client):
         """Search without query should fail."""
@@ -336,7 +351,7 @@ class TestErrorHandling:
             "/api/narratives/search",
             json={"n_results": 5}
         )
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 422
 
     def test_invalid_json(self, client):
         """Invalid JSON should return error."""

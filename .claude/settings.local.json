@@ -4,7 +4,8 @@
       "Bash(pip install:*)",
       "Bash(python:*)",
       "Bash(curl:*)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(grep:*)"
     ]
   }
 }

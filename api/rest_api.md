@@ -52,6 +52,90 @@ Response 200:
 }
 ```
 
+### POST /api/ingest/scrape
+
+Fetch fresh stories from live data sources and ingest them into ChromaDB.
+**This is the primary way to populate the narrative database.**
+
+All time-recency and volume knobs are exposed as request parameters.
+
+```
+Request:
+{
+  "lookback_minutes": 60,              // only pull stories from last N minutes
+                                       //   30   → very fresh, low volume
+                                       //   60   → last hour (default)
+                                       //   360  → last 6 hours
+                                       //   1440 → last 24 hours (NewsAPI max)
+
+  "max_per_source":   50,              // max stories per source (1–100)
+
+  "sources":          ["newsapi", "twitter"],   // which sources to use
+                                                // omit a source to skip it
+
+  "news_query":       null,            // override default NewsAPI keyword query
+                                       // null = use the built-in financial query
+  "twitter_query":    null,            // override default Twitter v2 query
+                                       // null = use the built-in financial query
+
+  "dry_run":          false            // if true: fetch + deduplicate but DON'T
+                                       // ingest. Returns preview of what would
+                                       // be ingested. Use to tune params.
+}
+
+Response 200:
+{
+  "fetched":              42,          // stories passing dedup (new this run)
+  "duplicates_skipped":   8,           // already seen in this session
+  "ingested":             41,          // successfully processed
+  "narratives_created":   3,           // new narrative directions spawned
+  "narratives_updated":   38,          // existing narratives updated
+  "errors":               1,           // stories that failed to ingest
+  "duration_seconds":     18.4,
+  "dedup_cache_size":     312,         // total entries in session dedup cache
+  "per_source": {
+    "newsapi":  28,
+    "twitter":  22
+  },
+  "narratives_touched": [
+    {
+      "id":         "uuid",
+      "name":       "European energy supply shock",
+      "action":     "updated",
+      "model_risk": 0.77,
+      "event_count": 41
+    }
+    // one entry per unique narrative touched this run
+  ],
+  "dry_run": false,
+  "stories_preview": null              // populated only when dry_run=true
+                                       // contains first 20 stories as
+                                       // [{headline, source, body}]
+}
+```
+
+**Recommended usage patterns:**
+
+```bash
+# Quick test — see what would be ingested without committing
+POST /api/ingest/scrape  {"lookback_minutes": 60, "dry_run": true}
+
+# Normal run — last hour from all sources
+POST /api/ingest/scrape  {"lookback_minutes": 60}
+
+# Bulk backfill — last 6 hours, max volume
+POST /api/ingest/scrape  {"lookback_minutes": 360, "max_per_source": 100}
+
+# News only, last 30 minutes
+POST /api/ingest/scrape  {"lookback_minutes": 30, "sources": ["newsapi"]}
+
+# Twitter only, custom topic
+POST /api/ingest/scrape  {
+  "sources": ["twitter"],
+  "twitter_query": "(SVB OR 'silicon valley bank' OR 'bank run') -is:retweet lang:en"
+}
+```
+
 ### POST /api/ingest/batch
 
 ```

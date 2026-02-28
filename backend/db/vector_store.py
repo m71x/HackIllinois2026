@@ -130,5 +130,26 @@ def query_nearest(
     return narratives
 
 
+def get_embedding(narrative_id: str) -> list[float]:
+    """
+    Retrieve the stored embedding vector for a narrative.
+    Used by narrative_engine._update_narrative() to blend the centroid.
+    Returns an empty list if the narrative is not found.
+    """
+    result = collection.get(ids=[narrative_id], include=["embeddings"])
+    if not result["ids"]:
+        return []
+    return list(result["embeddings"][0])  # convert numpy array to plain list
+
+
+def delete_narrative(narrative_id: str) -> bool:
+    """Delete a narrative direction by id. Returns True if deleted."""
+    try:
+        collection.delete(ids=[narrative_id])
+        return True
+    except Exception:
+        return False
+
+
 def narrative_count() -> int:
     return collection.count()

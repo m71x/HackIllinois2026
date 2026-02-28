@@ -58,6 +58,69 @@ export async function getHealth() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Fetch fresh stories from live sources and ingest them into ChromaDB.
+ * This is the primary way to populate the narrative database.
+ *
+ * @param {{
+ *   lookbackMinutes?:  number,   // default 60 — only pull from last N minutes
+ *   maxPerSource?:     number,   // default 50 — max stories per source (1-100)
+ *   sources?:          string[], // default ["newsapi","twitter"]
+ *   newsQuery?:        string,   // override default financial news query
+ *   twitterQuery?:     string,   // override default Twitter query
+ *   dryRun?:           boolean,  // default false — fetch but don't ingest
+ * }} [opts]
+ *
+ * @returns {Promise<{
+ *   fetched: number,
+ *   duplicates_skipped: number,
+ *   ingested: number,
+ *   narratives_created: number,
+ *   narratives_updated: number,
+ *   errors: number,
+ *   duration_seconds: number,
+ *   dedup_cache_size: number,
+ *   per_source: Record<string, number>,
+ *   narratives_touched: {id,name,action,model_risk,event_count}[],
+ *   dry_run: boolean,
+ *   stories_preview: {headline,source,body}[] | null
+ * }>}
+ *
+ * @example
+ * // Dry run — see what would be ingested without committing
+ * const preview = await scrapeAndIngest({ lookbackMinutes: 60, dryRun: true });
+ * console.log(preview.stories_preview);
+ *
+ * // Normal run — last hour
+ * const result = await scrapeAndIngest({ lookbackMinutes: 60 });
+ *
+ * // Bulk backfill — last 6 hours, max volume
+ * const result = await scrapeAndIngest({ lookbackMinutes: 360, maxPerSource: 100 });
+ *
+ * // Twitter only, custom query
+ * const result = await scrapeAndIngest({
+ *   sources: ["twitter"],
+ *   twitterQuery: "(SVB OR 'bank run') -is:retweet lang:en",
+ * });
+ */
+export async function scrapeAndIngest({
+  lookbackMinutes = 60,
+  maxPerSource = 50,
+  sources = ["newsapi", "twitter"],
+  newsQuery = null,
+  twitterQuery = null,
+  dryRun = false,
+} = {}) {
+  return _post("/api/ingest/scrape", {
+    lookback_minutes: lookbackMinutes,
+    max_per_source: maxPerSource,
+    sources,
+    news_query: newsQuery,
+    twitter_query: twitterQuery,
+    dry_run: dryRun,
+  });
+}
+
+/**
  * Ingest a single news story.
  *
  * @param {string} headline

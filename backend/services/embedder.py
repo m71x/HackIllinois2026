@@ -6,8 +6,8 @@ The Modal app must be deployed before this will work:
 
 Falls back to local sentence-transformers if Modal is unavailable.
 
-Public interface is identical to the old local version so nothing else changes:
-    embed_text(text: str)          -> list[float]
+Public interface:
+    embed_text(text: str)          -> list[float]   # 384-dim L2-normalized
     embed_batch(texts: list[str])  -> list[list[float]]
 """
 

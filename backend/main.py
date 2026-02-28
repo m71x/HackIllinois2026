@@ -1,13 +1,37 @@
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from api.routes import ingest, narratives, risk
 from db import vector_store
+from core.config import settings
 from core.state import pipeline_stats, sse_subscribers
 
-app = FastAPI(title="Real-World Model Risk Engine")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan handler for startup/shutdown events."""
+    # ---- startup ----
+    if settings.auto_start_pipeline:
+        try:
+            from services.pipeline import start_pipeline
+            await start_pipeline()
+        except ImportError:
+            pass  # Pipeline service not available
+
+    yield
+
+    # ---- shutdown ----
+    try:
+        from services.pipeline import stop_pipeline
+        await stop_pipeline()
+    except ImportError:
+        pass  # Pipeline service not available
+
+
+app = FastAPI(title="Real-World Model Risk Engine", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,9 +40,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Core routes
 app.include_router(ingest.router,     prefix="/api/ingest",     tags=["ingest"])
 app.include_router(narratives.router, prefix="/api/narratives", tags=["narratives"])
 app.include_router(risk.router,       prefix="/api/risk",       tags=["risk"])
+
+# Optional routes - only include if modules exist
+try:
+    from api.routes import pipeline
+    app.include_router(pipeline.router, prefix="/api/pipeline", tags=["pipeline"])
+except ImportError:
+    pass
+
+try:
+    from api.routes import tickers
+    app.include_router(tickers.router, prefix="/api/tickers", tags=["tickers"])
+except ImportError:
+    pass
 
 
 @app.get("/health")
