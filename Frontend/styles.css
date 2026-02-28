@@ -596,7 +596,7 @@ td.desc {
 
 input[type="text"],
 textarea {
-  width: 100%;
+  flex: 1;
   background: rgba(0, 0, 0, 0.3);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius-sm);
