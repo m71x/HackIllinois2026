@@ -1823,6 +1823,134 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ============================================================
+// SECTION: High Risk Stock Spotlight
+// ============================================================
+
+// Curated candidates spanning Tech, Financials, Energy, Crypto-adjacent, Industrial
+const HIGH_RISK_CANDIDATES = [
+  "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "TSLA", "AMD", "INTC",
+  "JPM", "BAC", "GS", "MS", "WFC", "C",
+  "XOM", "CVX", "OXY",
+  "COIN", "MARA",
+  "BA", "GE", "UNH", "V", "QCOM",
+];
+
+async function loadHighRiskStocks() {
+  const grid = document.getElementById("high-risk-grid");
+  if (!grid) return;
+
+  // Skeleton
+  grid.innerHTML = Array(10).fill(`
+    <div class="hr-card hr-skeleton" style="border-left-color:rgba(255,255,255,0.08)">
+      <div class="hr-skel-line" style="width:38%;height:0.9rem;margin-bottom:0.3rem"></div>
+      <div class="hr-skel-line" style="width:68%;height:0.6rem;margin-bottom:0.55rem"></div>
+      <div class="hr-skel-line" style="width:50%;height:1.1rem;margin-bottom:0.3rem"></div>
+      <div class="hr-skel-line" style="width:100%;height:3px;margin-bottom:0.4rem"></div>
+      <div class="hr-skel-line" style="width:80%;height:0.6rem"></div>
+    </div>`).join("");
+
+  let cards = [];
+  try {
+    const res = await fetch(`${API}/tickers/relate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tickers: HIGH_RISK_CANDIDATES, n_results: 3 }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      cards = _buildHighRiskCards(data.results || []);
+    }
+  } catch (_) { /* fall through to mock */ }
+
+  if (cards.length === 0) cards = _mockHighRiskCards();
+  renderHighRiskGrid(cards.slice(0, 10));
+}
+
+function _buildHighRiskCards(results) {
+  // composite_risk = max over narratives of (model_risk × similarity)
+  // This captures worst-case exposure: high-risk narrative + high semantic overlap
+  return results
+    .map(r => {
+      const narrs = r.narratives || [];
+      if (narrs.length === 0) return null;
+      const top = narrs.reduce((best, n) => {
+        return (n.model_risk ?? 0) * (n.similarity ?? 0) >
+               (best.model_risk ?? 0) * (best.similarity ?? 0) ? n : best;
+      });
+      return {
+        symbol: r.ticker,
+        company_name: r.company_name,
+        sector: r.sector,
+        composite_risk: Math.min(1, (top.model_risk ?? 0) * (top.similarity ?? 0)),
+        top_narrative: top.name,
+        top_narrative_risk: top.model_risk ?? 0,
+        similarity: top.similarity ?? 0,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.composite_risk - a.composite_risk);
+}
+
+function _mockHighRiskCards() {
+  const mockNarrs = MOCK_DATA.narratives;
+  return WATCHLIST.map(s => {
+    const risk = Math.min(1, Math.max(0, s.risk + (Math.random() * 0.08 - 0.04)));
+    const narr = mockNarrs[Math.floor(risk * mockNarrs.length)] || mockNarrs[0];
+    return {
+      symbol: s.sym,
+      company_name: s.name,
+      sector: "—",
+      composite_risk: risk,
+      top_narrative: narr.name,
+      top_narrative_risk: narr.model_risk,
+      similarity: 0.65 + Math.random() * 0.30,
+    };
+  }).sort((a, b) => b.composite_risk - a.composite_risk);
+}
+
+function renderHighRiskGrid(cards) {
+  const grid = document.getElementById("high-risk-grid");
+  if (!grid) return;
+
+  grid.innerHTML = cards.map((c, i) => {
+    const cls   = c.composite_risk >= 0.66 ? "risk-high" : c.composite_risk >= 0.33 ? "risk-medium" : "risk-low";
+    const color = c.composite_risk >= 0.66 ? "var(--risk-high)" : c.composite_risk >= 0.33 ? "var(--risk-medium)" : "var(--risk-low)";
+    const pct   = (c.composite_risk * 100).toFixed(0);
+    const shortCompany = c.company_name.length > 22 ? c.company_name.slice(0, 20) + "…" : c.company_name;
+    const shortNarr    = c.top_narrative.length > 26 ? c.top_narrative.slice(0, 24) + "…" : c.top_narrative;
+    return `
+      <div class="hr-card ${cls}" data-symbol="${escapeHtml(c.symbol)}" title="Click to open full analysis">
+        <span class="hr-rank">#${i + 1}</span>
+        <div class="hr-ticker">${escapeHtml(c.symbol)}</div>
+        <div class="hr-company">${escapeHtml(shortCompany)}</div>
+        <div class="hr-score" style="color:${color}">${c.composite_risk.toFixed(2)}</div>
+        <div class="hr-bar"><div class="hr-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+        <div class="hr-narrative"><i class="ph ph-warning-circle" style="font-size:0.65rem;opacity:0.55"></i> ${escapeHtml(shortNarr)}</div>
+      </div>`;
+  }).join("");
+
+  grid.querySelectorAll(".hr-card").forEach(card => {
+    card.addEventListener("click", () => omnibarSelect(card.dataset.symbol));
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadHighRiskStocks();
+
+  const refreshBtn = document.getElementById("high-risk-refresh-btn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", async () => {
+      refreshBtn.disabled = true;
+      const icon = refreshBtn.querySelector("i");
+      if (icon) icon.className = "ph ph-spinner ph-spin";
+      await loadHighRiskStocks();
+      refreshBtn.disabled = false;
+      if (icon) icon.className = "ph ph-arrows-clockwise";
+    });
+  }
+});
+
+// ============================================================
 // SECTION: Ticker Search — Filter narratives by stock ticker
 // ============================================================
 

@@ -2811,6 +2811,114 @@ body.light-theme .omnibar-company-header .ticker-symbol-badge {
   opacity: 0.75;
 }
 
+/* ── High Risk Stock Spotlight ── */
+
+.high-risk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 0.6rem;
+  padding: 0.1rem 0;
+}
+
+.hr-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 0.9rem;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.18s, transform 0.15s, box-shadow 0.18s;
+  overflow: hidden;
+}
+
+.hr-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+}
+
+.hr-card.risk-high   { border-left-color: var(--risk-high); }
+.hr-card.risk-medium { border-left-color: var(--risk-medium); }
+.hr-card.risk-low    { border-left-color: var(--risk-low); }
+
+.hr-rank {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.55rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+
+.hr-ticker {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #fff;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.15rem;
+}
+
+.hr-company {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 0.55rem;
+}
+
+.hr-score {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.35rem;
+  line-height: 1;
+  margin-bottom: 0.3rem;
+}
+
+.hr-bar {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 0.45rem;
+}
+
+.hr-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.hr-narrative {
+  font-size: 0.67rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Skeleton loading */
+.hr-skeleton {
+  pointer-events: none;
+}
+
+.hr-skel-line {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  animation: hr-skel-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes hr-skel-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 0.9; }
+}
+
 /* ── 3D Legend ── */
 
 .ta-3d-legend {
