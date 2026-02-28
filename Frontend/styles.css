@@ -239,7 +239,6 @@ h3 {
   background-color: var(--risk-low);
   border-radius: 50%;
   box-shadow: 0 0 8px var(--risk-low);
-  animation: pulse 2s infinite ease-in-out;
 }
 
 @keyframes pulse {
@@ -926,7 +925,6 @@ textarea {
   color: var(--accent-cyan);
   font-family: var(--font-mono);
   text-transform: uppercase;
-  animation: pulse 2s infinite;
 }
 
 .feed-list {

@@ -624,15 +624,36 @@ const MARKETS = [
 ];
 
 const WATCHLIST = [
-  { sym: "AAPL", name: "Apple Inc.", base: 185.20, vol: "52.1M" },
-  { sym: "NVDA", name: "NVIDIA Corp.", base: 721.50, vol: "41.8M" },
-  { sym: "MSFT", name: "Microsoft Corp.", base: 405.11, vol: "28.3M" },
-  { sym: "TSLA", name: "Tesla Inc.", base: 193.81, vol: "110.2M" },
-  { sym: "META", name: "Meta Platforms", base: 468.10, vol: "18.5M" },
-  { sym: "GOOGL", name: "Alphabet Inc.", base: 142.30, vol: "25.6M" },
-  { sym: "AMZN", name: "Amazon.com Inc.", base: 169.50, vol: "45.1M" },
-  { sym: "XOM", name: "Exxon Mobil", base: 104.20, vol: "15.4M" },
-  { sym: "JPM", name: "JPMorgan Chase", base: 175.40, vol: "12.1M" }
+  // Tech
+  { sym: "AAPL", name: "Apple Inc.", base: 185.20, vol: "52.1M", risk: 0.32 },
+  { sym: "NVDA", name: "NVIDIA Corp.", base: 721.50, vol: "41.8M", risk: 0.71 },
+  { sym: "MSFT", name: "Microsoft Corp.", base: 405.11, vol: "28.3M", risk: 0.25 },
+  { sym: "TSLA", name: "Tesla Inc.", base: 193.81, vol: "110.2M", risk: 0.82 },
+  { sym: "META", name: "Meta Platforms", base: 468.10, vol: "18.5M", risk: 0.45 },
+  { sym: "GOOGL", name: "Alphabet Inc.", base: 142.30, vol: "25.6M", risk: 0.29 },
+  { sym: "AMZN", name: "Amazon.com Inc.", base: 169.50, vol: "45.1M", risk: 0.38 },
+  { sym: "AMD", name: "Advanced Micro Devices", base: 164.80, vol: "55.3M", risk: 0.67 },
+  { sym: "INTC", name: "Intel Corp.", base: 42.90, vol: "38.7M", risk: 0.58 },
+  { sym: "CRM", name: "Salesforce Inc.", base: 272.40, vol: "8.2M", risk: 0.34 },
+  { sym: "ORCL", name: "Oracle Corp.", base: 118.50, vol: "11.4M", risk: 0.31 },
+  { sym: "NFLX", name: "Netflix Inc.", base: 562.30, vol: "9.8M", risk: 0.41 },
+  // Finance
+  { sym: "JPM", name: "JPMorgan Chase", base: 175.40, vol: "12.1M", risk: 0.53 },
+  { sym: "BAC", name: "Bank of America", base: 33.80, vol: "42.5M", risk: 0.49 },
+  { sym: "GS", name: "Goldman Sachs", base: 378.20, vol: "3.1M", risk: 0.56 },
+  { sym: "V", name: "Visa Inc.", base: 275.60, vol: "7.9M", risk: 0.22 },
+  // Energy
+  { sym: "XOM", name: "Exxon Mobil", base: 104.20, vol: "15.4M", risk: 0.61 },
+  { sym: "CVX", name: "Chevron Corp.", base: 152.70, vol: "9.3M", risk: 0.58 },
+  { sym: "OXY", name: "Occidental Petroleum", base: 58.40, vol: "14.2M", risk: 0.73 },
+  // Healthcare
+  { sym: "JNJ", name: "Johnson & Johnson", base: 158.90, vol: "8.6M", risk: 0.19 },
+  { sym: "UNH", name: "UnitedHealth Group", base: 492.30, vol: "4.2M", risk: 0.27 },
+  { sym: "PFE", name: "Pfizer Inc.", base: 27.50, vol: "31.8M", risk: 0.44 },
+  // Consumer / Industrial
+  { sym: "WMT", name: "Walmart Inc.", base: 168.10, vol: "10.5M", risk: 0.15 },
+  { sym: "DIS", name: "Walt Disney Co.", base: 94.20, vol: "13.7M", risk: 0.51 },
+  { sym: "BA", name: "Boeing Co.", base: 198.40, vol: "6.8M", risk: 0.76 }
 ];
 
 // Initialize stock prices with some random daily drift
@@ -684,15 +705,26 @@ function updateStocks() {
   const tbody = document.getElementById("stocks-tbody");
   if (!tbody) return;
 
+  const searchInput = document.getElementById("stock-search-input");
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : "";
+
   // Tick the stocks
   WATCHLIST.forEach(s => {
-    // Random walk
-    const change = s.current * (Math.random() * 0.004 - 0.002); // +/- 0.2% max tick
+    const change = s.current * (Math.random() * 0.004 - 0.002);
     s.current += change;
+    // Slightly drift risk too
+    s.risk = Math.max(0, Math.min(1, s.risk + (Math.random() * 0.01 - 0.005)));
   });
 
-  // Sort by highest volume for display, or just alphabetical. We'll stick to fixed for now.
-  tbody.innerHTML = WATCHLIST.map(s => {
+  // Filter by search query
+  const filtered = query
+    ? WATCHLIST.filter(s =>
+      s.sym.toLowerCase().includes(query) ||
+      s.name.toLowerCase().includes(query)
+    )
+    : WATCHLIST;
+
+  tbody.innerHTML = filtered.map(s => {
     const diff = s.current - s.start;
     const pct = (diff / s.start) * 100;
     const isUp = diff >= 0;
@@ -706,10 +738,15 @@ function updateStocks() {
         <td class="num-col data-number" style="font-weight:700;">$${s.current.toFixed(2)}</td>
         <td class="num-col data-number ${colorClass}">${sign}${diff.toFixed(2)}</td>
         <td class="num-col data-number ${colorClass}">${sign}${pct.toFixed(2)}%</td>
+        <td class="num-col data-number" style="color:${riskColor(s.risk)}; font-weight:600;">${s.risk.toFixed(2)}</td>
         <td class="num-col data-number text-text-muted">${s.vol}</td>
       </tr>
     `;
   }).join('');
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:2rem;">No stocks matching "${query}"</td></tr>`;
+  }
 }
 
 // ============================================================
@@ -742,6 +779,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Start Equities & Clocks Features
   updateMarketClocks();
   setInterval(updateMarketClocks, 1000); // 1s tick for clocks
+
+  // Stock search live filter
+  document.getElementById("stock-search-input").addEventListener("input", updateStocks);
 
   updateStocks();
   setInterval(updateStocks, 2500); // 2.5s tick for stocks
