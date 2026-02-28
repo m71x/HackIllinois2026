@@ -251,6 +251,31 @@
       </div>
     </section>
 
+    <!-- ── Narrative Vector Space ── -->
+    <section id="narrative-graph-panel" class="card glass-panel wide">
+      <div class="card-header split">
+        <h2><i class="ph ph-graph"></i> Narrative Vector Space</h2>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+          <span style="font-size:0.72rem;color:var(--text-muted)">Color by</span>
+          <div class="ng-toggle-group">
+            <button class="ng-toggle active" id="ng-color-risk">Risk</button>
+            <button class="ng-toggle" id="ng-color-surprise">Surprise</button>
+          </div>
+          <button class="icon-btn" id="ng-refresh-btn" title="Refresh graph">
+            <i class="ph ph-arrows-clockwise"></i>
+          </button>
+        </div>
+      </div>
+      <div class="ng-canvas-wrap" id="ng-canvas-wrap">
+        <canvas id="ng-canvas"></canvas>
+        <div class="ng-tooltip hidden" id="ng-tooltip"></div>
+        <div class="ng-overlay" id="ng-overlay">
+          <div class="spinner"></div>
+          <span style="color:var(--text-muted);font-size:0.8rem;margin-top:0.5rem">Loading vector space...</span>
+        </div>
+      </div>
+    </section>
+
     <!-- ── ROW 2: Narrative Table (full width) ── -->
     <section id="narratives-panel" class="card glass-panel wide">
       <div class="card-header split">

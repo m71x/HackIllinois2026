@@ -69,6 +69,17 @@ function handleMockMode(path) {
   if (path.includes("/risk/history")) return { history: MOCK_DATA.history };
   if (path.includes("/risk")) return { model_risk_index: MOCK_DATA.riskIndex };
   if (path.includes("/narratives?")) return { narratives: MOCK_DATA.narratives };
+  if (path.includes("/narratives/graph")) return {
+    nodes: MOCK_DATA.narratives.map((n, i) => ({
+      id: n.id, name: n.name,
+      x: Math.cos(2 * Math.PI * i / MOCK_DATA.narratives.length) * 0.7,
+      y: Math.sin(2 * Math.PI * i / MOCK_DATA.narratives.length) * 0.7,
+      model_risk: n.model_risk, current_surprise: n.current_surprise,
+      current_impact: n.current_impact, event_count: n.event_count,
+      last_updated: n.last_updated,
+    })),
+    edges: [{ source: "1", target: "2", similarity: 0.71 }, { source: "3", target: "5", similarity: 0.63 }],
+  };
   if (path.includes("/narratives/")) return { ...MOCK_DATA.narratives[0], surprise_series: MOCK_DATA.history.map(h => ({ timestamp: h.timestamp, value: h.model_risk_index - 0.2 })), impact_series: MOCK_DATA.history.map(h => ({ timestamp: h.timestamp, value: h.model_risk_index + 0.1 })), model_risk_series: MOCK_DATA.history.map(h => ({ timestamp: h.timestamp, value: h.model_risk_index })), recent_headlines: ["US blocks LNG exports to EU", "Gas futures collapse 40%", "emergency rationing invoked in Berlin", "CNBC market alert: Energy sector halts trading"] };
   if (path.includes("/pipeline/stats")) return { pipeline: MOCK_DATA.pipeline, narratives: { total: 42, active: 5 } };
   return {};
@@ -2945,3 +2956,324 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+// ============================================================
+// SECTION — Narrative Vector Space Graph
+// ============================================================
+
+const _ng = {
+  nodes: [],        // {id, name, px, py, model_risk, current_surprise, current_impact, event_count, last_updated}
+  edges: [],        // {source, target, similarity}
+  colorMode: "risk", // "risk" | "surprise"
+  hoveredId: null,
+  rafId: null,
+  recentIds: new Set(),   // narrative IDs pulsed from live SSE events
+  recentTimers: {},
+};
+
+let _ngLoaded = false;
+let _ngRefreshTimer = null;
+
+async function loadNarrativeGraph() {
+  const overlay = document.getElementById("ng-overlay");
+  if (overlay) overlay.classList.remove("hidden");
+
+  try {
+    const data = await fetchJSON("/narratives/graph");
+    if (!data || !data.nodes) { if (overlay) overlay.classList.add("hidden"); return; }
+
+    const canvas = document.getElementById("ng-canvas");
+    if (!canvas) return;
+
+    const W = canvas.offsetWidth || 900;
+    const H = canvas.offsetHeight || 480;
+    const PAD = 80;
+    const mapX = x => PAD + ((x + 1) / 2) * (W - 2 * PAD);
+    const mapY = y => PAD + ((y + 1) / 2) * (H - 2 * PAD);
+
+    _ng.nodes = data.nodes.map(n => ({ ...n, px: mapX(n.x), py: mapY(n.y) }));
+    _ng.edges = data.edges;
+
+    _ngRelax(W, H, PAD);
+
+    _ngLoaded = true;
+    if (overlay) overlay.classList.add("hidden");
+    _ngDraw();
+  } catch (e) {
+    console.warn("[NarrativeGraph] load failed", e);
+    if (overlay) overlay.classList.add("hidden");
+  }
+}
+
+function _ngRelax(W, H, PAD) {
+  // Simple repulsion pass to separate overlapping nodes
+  const N = _ng.nodes.length;
+  if (N < 2) return;
+  const MIN_DIST = 60;
+  for (let iter = 0; iter < 60; iter++) {
+    const fx = new Float64Array(N);
+    const fy = new Float64Array(N);
+    for (let i = 0; i < N; i++) {
+      for (let j = i + 1; j < N; j++) {
+        const dx = _ng.nodes[j].px - _ng.nodes[i].px;
+        const dy = _ng.nodes[j].py - _ng.nodes[i].py;
+        const dist = Math.hypot(dx, dy) + 0.01;
+        if (dist < MIN_DIST) {
+          const f = (MIN_DIST - dist) * 0.3 / dist;
+          fx[i] -= f * dx; fy[i] -= f * dy;
+          fx[j] += f * dx; fy[j] += f * dy;
+        }
+      }
+    }
+    for (let i = 0; i < N; i++) {
+      _ng.nodes[i].px = Math.max(PAD, Math.min(W - PAD, _ng.nodes[i].px + fx[i] * 0.8));
+      _ng.nodes[i].py = Math.max(PAD, Math.min(H - PAD, _ng.nodes[i].py + fy[i] * 0.8));
+    }
+  }
+}
+
+function _ngColor(v, mode) {
+  if (mode === "surprise") {
+    if (v < 0.33) return "#06b6d4";    // calm — cyan
+    if (v < 0.66) return "#f59e0b";    // active — amber
+    return "#8b5cf6";                   // high surprise — purple
+  }
+  // risk: green → amber → red
+  if (v < 0.33) return "#10b981";
+  if (v < 0.66) return "#f59e0b";
+  return "#ef4444";
+}
+
+function _ngRadius(node) {
+  return Math.max(6, Math.min(18, 5 + Math.log((node.event_count || 1) + 1) * 2.2));
+}
+
+function _ngDraw() {
+  const canvas = document.getElementById("ng-canvas");
+  if (!canvas) return;
+
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  if (canvas.width !== W * dpr || canvas.height !== H * dpr) {
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+  }
+
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  if (!_ng.nodes.length) {
+    ctx.fillStyle = "rgba(139,148,158,0.35)";
+    ctx.font = "14px 'Outfit'";
+    ctx.textAlign = "center";
+    ctx.fillText("No narrative data yet — ingest some stories", W / 2, H / 2);
+    return;
+  }
+
+  // Build id → node index map for edge lookup
+  const idxMap = {};
+  _ng.nodes.forEach((n, i) => { idxMap[n.id] = i; });
+
+  // Draw edges (behind nodes)
+  ctx.save();
+  _ng.edges.forEach(e => {
+    const a = _ng.nodes[idxMap[e.source]];
+    const b = _ng.nodes[idxMap[e.target]];
+    if (!a || !b) return;
+    const alpha = Math.max(0.06, (e.similarity - 0.55) / 0.45 * 0.4);
+    ctx.beginPath();
+    ctx.moveTo(a.px, a.py);
+    ctx.lineTo(b.px, b.py);
+    ctx.strokeStyle = `rgba(148,163,184,${alpha.toFixed(2)})`;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 5]);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Draw nodes
+  _ng.nodes.forEach(n => {
+    const r = _ngRadius(n);
+    const v = _ng.colorMode === "risk" ? (n.model_risk ?? 0) : (n.current_surprise ?? 0);
+    const color = _ngColor(v, _ng.colorMode);
+    const isHovered = n.id === _ng.hoveredId;
+    const isRecent = _ng.recentIds.has(n.id);
+
+    // Animated pulse ring for live-updated nodes
+    if (isRecent) {
+      const t = (Date.now() % 1800) / 1800;
+      const pr = r + 4 + 8 * t;
+      const pa = 0.5 * (1 - t);
+      ctx.beginPath();
+      ctx.arc(n.px, n.py, pr, 0, Math.PI * 2);
+      ctx.strokeStyle = color + Math.round(pa * 255).toString(16).padStart(2, "0");
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Glow halo
+    const glowR = r + (isHovered ? 12 : 6);
+    const grad = ctx.createRadialGradient(n.px, n.py, r * 0.5, n.px, n.py, glowR);
+    grad.addColorStop(0, color + "44");
+    grad.addColorStop(1, color + "00");
+    ctx.beginPath();
+    ctx.arc(n.px, n.py, glowR, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Node fill
+    ctx.beginPath();
+    ctx.arc(n.px, n.py, r, 0, Math.PI * 2);
+    ctx.fillStyle = color + (isHovered ? "ff" : "cc");
+    ctx.fill();
+    ctx.strokeStyle = isHovered ? "#ffffff" : color;
+    ctx.lineWidth = isHovered ? 2 : 1;
+    ctx.stroke();
+
+    // Label
+    const label = n.name.length > 24 ? n.name.slice(0, 22) + "…" : n.name;
+    ctx.fillStyle = isHovered ? "rgba(255,255,255,0.95)" : "rgba(139,148,158,0.85)";
+    ctx.font = isHovered ? "bold 10.5px 'Inter'" : "10px 'Inter'";
+    ctx.textAlign = "center";
+    ctx.fillText(label, n.px, n.py + r + 13);
+  });
+
+  // Continue animation loop only while recent nodes exist
+  if (_ng.recentIds.size > 0) {
+    _ng.rafId = requestAnimationFrame(_ngDraw);
+  } else {
+    _ng.rafId = null;
+  }
+}
+
+function _ngFindHovered(mx, my) {
+  let closest = null, minDist = 22;
+  _ng.nodes.forEach(n => {
+    const d = Math.hypot(n.px - mx, n.py - my);
+    if (d < minDist) { minDist = d; closest = n; }
+  });
+  return closest;
+}
+
+function _ngShowTooltip(node, cx, cy) {
+  const tip = document.getElementById("ng-tooltip");
+  const wrap = document.getElementById("ng-canvas-wrap");
+  if (!tip || !wrap) return;
+
+  const riskV = (node.model_risk ?? 0).toFixed(2);
+  const surpV = (node.current_surprise ?? 0).toFixed(2);
+  const impV  = (node.current_impact  ?? 0).toFixed(2);
+  const riskC = _ngColor(node.model_risk ?? 0, "risk");
+
+  tip.innerHTML = `
+    <div class="ng-tooltip-name">${node.name}</div>
+    <div class="ng-tooltip-stats">
+      <div class="ng-tooltip-stat">Risk<span style="color:${riskC}">${riskV}</span></div>
+      <div class="ng-tooltip-stat">Surprise<span>${surpV}</span></div>
+      <div class="ng-tooltip-stat">Impact<span>${impV}</span></div>
+      <div class="ng-tooltip-stat">Events<span>${node.event_count}</span></div>
+    </div>
+    <div style="margin-top:0.4rem;font-size:0.68rem;color:var(--text-dim)">Click to inspect</div>
+  `;
+
+  const wrapRect = wrap.getBoundingClientRect();
+  const tipW = 220, tipH = 130;
+  let tx = cx + 16, ty = cy - 20;
+  if (tx + tipW > wrapRect.width)  tx = cx - tipW - 12;
+  if (ty + tipH > wrapRect.height) ty = cy - tipH;
+  if (ty < 0) ty = 8;
+
+  tip.style.left = tx + "px";
+  tip.style.top  = ty + "px";
+  tip.classList.remove("hidden");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const canvas     = document.getElementById("ng-canvas");
+  const riskBtn    = document.getElementById("ng-color-risk");
+  const surpriseBtn = document.getElementById("ng-color-surprise");
+  const refreshBtn = document.getElementById("ng-refresh-btn");
+  if (!canvas) return;
+
+  let _ngMouseDown = { x: 0, y: 0 };
+
+  canvas.addEventListener("mousemove", e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const hovered = _ngFindHovered(mx, my);
+    const prev = _ng.hoveredId;
+    _ng.hoveredId = hovered?.id ?? null;
+    canvas.style.cursor = hovered ? "pointer" : "default";
+    if (hovered) {
+      _ngShowTooltip(hovered, mx, my);
+    } else {
+      document.getElementById("ng-tooltip")?.classList.add("hidden");
+    }
+    if (prev !== _ng.hoveredId) _ngDraw();
+  });
+
+  canvas.addEventListener("mouseleave", () => {
+    _ng.hoveredId = null;
+    document.getElementById("ng-tooltip")?.classList.add("hidden");
+    _ngDraw();
+  });
+
+  canvas.addEventListener("mousedown", e => { _ngMouseDown = { x: e.clientX, y: e.clientY }; });
+  canvas.addEventListener("click", e => {
+    if (Math.hypot(e.clientX - _ngMouseDown.x, e.clientY - _ngMouseDown.y) > 5) return;
+    const rect = canvas.getBoundingClientRect();
+    const node = _ngFindHovered(e.clientX - rect.left, e.clientY - rect.top);
+    if (node) openNarrativeModal(node.id);
+  });
+
+  riskBtn?.addEventListener("click", () => {
+    _ng.colorMode = "risk";
+    riskBtn.classList.add("active");
+    surpriseBtn?.classList.remove("active");
+    _ngDraw();
+  });
+
+  surpriseBtn?.addEventListener("click", () => {
+    _ng.colorMode = "surprise";
+    surpriseBtn.classList.add("active");
+    riskBtn?.classList.remove("active");
+    _ngDraw();
+  });
+
+  refreshBtn?.addEventListener("click", () => {
+    const icon = refreshBtn.querySelector("i");
+    icon?.classList.add("spinning");
+    loadNarrativeGraph().finally(() => icon?.classList.remove("spinning"));
+  });
+
+  window.addEventListener("resize", () => {
+    if (_ngLoaded) loadNarrativeGraph();
+  });
+
+  loadNarrativeGraph();
+});
+
+// ── Hook into appendFeedItem for live SSE-driven graph updates ────────────────
+
+const _ngOrigAppendFeedItem = appendFeedItem;
+appendFeedItem = function (result) {
+  _ngOrigAppendFeedItem.call(this, result);
+
+  // Pulse the affected narrative node
+  if (result?.narrative_id) {
+    _ng.recentIds.add(result.narrative_id);
+    clearTimeout(_ng.recentTimers[result.narrative_id]);
+    _ng.recentTimers[result.narrative_id] = setTimeout(() => {
+      _ng.recentIds.delete(result.narrative_id);
+    }, 60_000);
+    if (!_ng.rafId) _ng.rafId = requestAnimationFrame(_ngDraw);
+  }
+
+  // Debounced full graph refresh (2s delay to batch rapid ingests)
+  clearTimeout(_ngRefreshTimer);
+  _ngRefreshTimer = setTimeout(loadNarrativeGraph, 2000);
+};
