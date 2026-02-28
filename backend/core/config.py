@@ -14,23 +14,19 @@ class Settings(BaseSettings):
     # Stories with best_distance >= threshold spawn a new narrative direction.
     new_narrative_threshold: float = 0.40
 
-    # Pipeline
+    # Pipeline — background auto-scrape
+    auto_start_pipeline: bool = False         # set to true to scrape automatically on boot
     pipeline_num_workers: int = 2
-    poll_interval_seconds: int = 60
+    poll_interval_seconds: int = 300          # scrape every 5 minutes by default
+    pipeline_lookback_minutes: int = 10       # only pull stories from last 10 min per poll
+    pipeline_max_per_source: int = 30         # max items per source per poll
+    pipeline_sources: list[str] = ["newsapi", "twitter"]
 
-    # RSS sources (override via env as JSON list)
-    rss_sources: list[str] = [
-        "https://www.cnbc.com/id/100003114/device/rss/rss.html",
-        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
-        "https://feeds.reuters.com/reuters/businessNews",
-        "https://finance.yahoo.com/news/rssindex",
-        "https://feeds.marketwatch.com/marketwatch/topstories/",
-    ]
+    # NewsAPI  (newsapi.org — free tier: 100 req/day, 1-month lookback)
+    newsapi_key: Optional[str] = None
 
-    # Reddit (optional — leave empty to disable)
-    reddit_client_id: Optional[str] = None
-    reddit_client_secret: Optional[str] = None
-    reddit_subreddits: list[str] = ["stocks", "investing", "worldnews"]
+    # Twitter/X API v2  (developer.twitter.com — bearer token, app-only auth)
+    twitter_bearer_token: Optional[str] = None
 
     class Config:
         env_file = ".env"
