@@ -284,7 +284,14 @@
     <section class="card glass-panel wide" style="min-height: 500px;">
       <div class="card-header split">
         <h2><i class="ph ph-chart-line"></i> Active Equities Watchlist (Live Data)</h2>
-        <span class="feed-status-text" id="stocks-status" style="color: var(--risk-low);">Connected</span>
+        <div class="header-controls" style="display:flex; align-items:center; gap:1rem;">
+          <div class="input-row has-icon" style="margin:0; flex:1; min-width:200px;">
+            <i class="ph ph-magnifying-glass input-icon"></i>
+            <input id="stock-search-input" type="text" placeholder="Search stocks..." autocomplete="off"
+              style="padding:0.5rem 0.5rem 0.5rem 2.2rem; font-size:0.85rem;" />
+          </div>
+          <span class="feed-status-text" id="stocks-status" style="color: var(--risk-low);">Connected</span>
+        </div>
       </div>
       <div class="table-wrapper custom-scrollbar">
         <table id="stocks-table">
@@ -295,6 +302,7 @@
               <th class="num-col">Price (USD)</th>
               <th class="num-col">Change</th>
               <th class="num-col">% Change</th>
+              <th class="num-col">Risk</th>
               <th class="num-col">Volume</th>
             </tr>
           </thead>
