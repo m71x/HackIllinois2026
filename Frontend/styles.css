@@ -2799,6 +2799,18 @@ body.light-theme .omnibar-company-header .ticker-symbol-badge {
   font-size: 0.78rem;
 }
 
+.vt-click-hint {
+  margin-top: 0.45rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  opacity: 0.75;
+}
+
 /* ── 3D Legend ── */
 
 .ta-3d-legend {

@@ -886,6 +886,11 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
       model_risk: n.model_risk,
       event_count: n.event_count,
       index: i,
+      id: n.id,
+      description: n.description,
+      current_surprise: n.current_surprise,
+      current_impact: n.current_impact,
+      surprise_trend: n.surprise_trend,
     };
     nodeGroup.add(mesh);
     hoverable.push(mesh);
@@ -986,6 +991,7 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
         <div class="vt-row"><span class="vt-label">Similarity</span><span class="vt-val text-accent-cyan">${((d.similarity ?? 0) * 100).toFixed(0)}%</span></div>
         <div class="vt-row"><span class="vt-label">Risk</span><span class="vt-val" style="color:${riskColor(d.model_risk)}">${(d.model_risk ?? 0).toFixed(2)}</span></div>
         <div class="vt-row"><span class="vt-label">Events</span><span class="vt-val">${d.event_count ?? 0}</span></div>
+        <div class="vt-click-hint"><i class="ph ph-cursor-click"></i> Click to inspect</div>
       `;
     } else {
       // Reset
@@ -996,6 +1002,24 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
   }
 
   renderer.domElement.addEventListener("mousemove", onMouseMove);
+
+  // ── Click on narrative node → open detail modal ──
+  let _mouseDownPos = { x: 0, y: 0 };
+  function onNodeMouseDown(e) { _mouseDownPos = { x: e.clientX, y: e.clientY }; }
+  function onNodeClick(e) {
+    if (Math.hypot(e.clientX - _mouseDownPos.x, e.clientY - _mouseDownPos.y) > 5) return;
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(hoverable);
+    if (intersects.length > 0) {
+      const d = intersects[0].object.userData;
+      if (d.id) openNarrativeModal(d.id);
+    }
+  }
+  renderer.domElement.addEventListener("mousedown", onNodeMouseDown);
+  renderer.domElement.addEventListener("click", onNodeClick);
 
   // ── Animation loop ──
   let animFrame;
@@ -1031,6 +1055,8 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
     cancelAnimationFrame(animFrame);
     resizeObs.disconnect();
     renderer.domElement.removeEventListener("mousemove", onMouseMove);
+    renderer.domElement.removeEventListener("mousedown", onNodeMouseDown);
+    renderer.domElement.removeEventListener("click", onNodeClick);
     controls.dispose();
     renderer.dispose();
 
