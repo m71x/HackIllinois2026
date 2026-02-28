@@ -1,8 +1,10 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env")
+
     # Modal
     modal_app_name: str = "model-risk-llm"   # must match APP_NAME in modal_app.py
 
@@ -31,9 +33,6 @@ class Settings(BaseSettings):
     reddit_client_id: Optional[str] = None
     reddit_client_secret: Optional[str] = None
     reddit_subreddits: list[str] = ["stocks", "investing", "worldnews"]
-
-    class Config:
-        env_file = ".env"
 
 
 settings = Settings()

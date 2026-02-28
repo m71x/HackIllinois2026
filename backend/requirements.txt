@@ -6,3 +6,8 @@ chromadb
 aiohttp
 feedparser
 praw
+sentence-transformers
+
+# Testing
+pytest
+httpx

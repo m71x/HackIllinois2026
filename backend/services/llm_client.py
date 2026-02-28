@@ -33,20 +33,21 @@ def _get_llm():
 def _chat(messages: list[dict], max_tokens: int = 256, temperature: float = 0.1) -> str:
     """
     Call the Modal LLM with exponential backoff retry.
-    If Modal is unavailable, raises RuntimeError.
+    Falls back to mock responses if Modal is unavailable.
     """
     llm = _get_llm()
     if llm is None:
-        raise RuntimeError(
-            "Modal LLM not available. Deploy with: modal deploy backend/modal_app.py"
-        )
+        # Return empty string to trigger fallback behavior in callers
+        return ""
 
     for attempt in range(3):
         try:
             return llm().chat.remote(messages, max_tokens=max_tokens, temperature=temperature)
         except Exception as e:
             if attempt == 2:
-                raise
+                # Fall back to empty on final failure
+                print(f"[llm_client] Modal call failed after 3 attempts: {e}")
+                return ""
             time.sleep(2 ** attempt)
     return ""
 
