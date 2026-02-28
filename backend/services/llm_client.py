@@ -32,20 +32,9 @@ def _get_client() -> Cerebras:
 
 def _chat(messages: list[dict], max_tokens: int = 256, temperature: float = 0.1) -> str:
     """
-<<<<<<< HEAD
-    Call the Modal LLM with exponential backoff retry.
-    Falls back to mock responses if Modal is unavailable.
-    """
-    llm = _get_llm()
-    if llm is None:
-        # Return empty string to trigger fallback behavior in callers
-        return ""
-
-=======
     Call Cerebras chat completions with exponential backoff retry (3 attempts).
     """
     client = _get_client()
->>>>>>> origin/model
     for attempt in range(3):
         try:
             resp = client.chat.completions.create(
@@ -55,7 +44,7 @@ def _chat(messages: list[dict], max_tokens: int = 256, temperature: float = 0.1)
                 temperature=temperature,
             )
             return resp.choices[0].message.content or ""
-        except Exception:
+        except Exception as e:
             if attempt == 2:
                 # Fall back to empty on final failure
                 print(f"[llm_client] Modal call failed after 3 attempts: {e}")

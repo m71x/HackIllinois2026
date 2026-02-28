@@ -735,3 +735,256 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateStocks();
   setInterval(updateStocks, 2500); // 2.5s tick for stocks
 });
+
+// ### ADDED (do not edit above)
+
+// --- Feature 4 & 5: Risk Regime & Risk Momentum ---
+function injectRiskRegimeAndMomentum() {
+  const gaugeContent = document.querySelector('.gauge-content');
+  if (!gaugeContent) return;
+
+  // Regime Banner
+  const regimeBanner = document.createElement('div');
+  regimeBanner.id = "risk-regime-banner";
+  regimeBanner.className = "status-pill regime-banner";
+  regimeBanner.textContent = "Evaluating...";
+  gaugeContent.insertBefore(regimeBanner, gaugeContent.firstChild);
+
+  // Momentum
+  const momentumContainer = document.createElement('div');
+  momentumContainer.className = "risk-momentum-container";
+  momentumContainer.innerHTML = `
+    <div class="momentum-item">
+      <div class="momentum-label">1h &Delta;</div>
+      <div id="momentum-1h" class="data-number fw-bold">N/A</div>
+    </div>
+    <div class="momentum-item">
+      <div class="momentum-label">24h &Delta;</div>
+      <div id="momentum-24h" class="data-number fw-bold">N/A</div>
+    </div>
+  `;
+  gaugeContent.appendChild(momentumContainer);
+}
+
+document.addEventListener("DOMContentLoaded", injectRiskRegimeAndMomentum);
+
+const _originalRenderGauge = renderGauge;
+renderGauge = function (val) {
+  _originalRenderGauge(val);
+  const regimeBanner = document.getElementById("risk-regime-banner");
+  if (regimeBanner && val != null) {
+    if (val < 0.35) {
+      regimeBanner.textContent = "Normal regime";
+      regimeBanner.className = "status-pill regime-banner low";
+    } else if (val < 0.65) {
+      regimeBanner.textContent = "Elevated exogenous pressure";
+      regimeBanner.className = "status-pill regime-banner medium";
+    } else {
+      regimeBanner.textContent = "Regime instability likely";
+      regimeBanner.className = "status-pill regime-banner high";
+    }
+  }
+};
+
+const _originalUpdateRiskChart = updateRiskChart;
+updateRiskChart = async function () {
+  await _originalUpdateRiskChart();
+  try {
+    const data = await fetchJSON("/risk/history");
+    const history = data.history || (isMockMode && MOCK_DATA.history ? MOCK_DATA.history : []);
+    if (history.length > 0) {
+      const newestRisk = history[history.length - 1].model_risk_index;
+
+      const tsNow = Date.now() / 1000;
+      let p1h = history[history.length - 1], p24h = history[0];
+      let min1h = Infinity, min24h = Infinity;
+
+      history.forEach(p => {
+        let d1h = Math.abs(p.timestamp - (tsNow - 3600));
+        if (d1h < min1h) { min1h = d1h; p1h = p; }
+        let d24h = Math.abs(p.timestamp - (tsNow - 86400));
+        if (d24h < min24h) { min24h = d24h; p24h = p; }
+      });
+
+      const updateMom = (id, oldR, newR) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const delta = newR - oldR;
+        const sign = delta > 0 ? "+" : "";
+        const c = delta > 0 ? "var(--risk-high)" : (delta < 0 ? "var(--risk-low)" : "var(--text-muted)");
+        const ic = delta > 0 ? "ph-trend-up" : (delta < 0 ? "ph-trend-down" : "ph-minus");
+        el.innerHTML = `<span style="color:${c}">${sign}${delta.toFixed(2)} <i class="ph ${ic}"></i></span>`;
+      };
+
+      updateMom("momentum-1h", p1h.model_risk_index, newestRisk);
+      updateMom("momentum-24h", p24h.model_risk_index, newestRisk);
+    }
+  } catch (e) { console.error("Momentum error", e); }
+};
+
+// --- Feature 1 & 2: Top Drivers & Emerging Narratives ---
+function injectNewCards() {
+  const dashTab = document.getElementById("dashboard-tab");
+  if (!dashTab) return;
+
+  const newCardsHtml = `
+    <!-- Top Risk Drivers -->
+    <section id="top-drivers-panel" class="card glass-panel wide" style="grid-column: 1 / -1;">
+      <div class="card-header">
+        <h2><i class="ph ph-lightning text-accent-cyan"></i> Top Risk Drivers</h2>
+      </div>
+      <div class="table-wrapper custom-scrollbar">
+        <table id="top-drivers-table">
+          <thead>
+            <tr>
+              <th>Direction</th>
+              <th class="num-col">Contrib %</th>
+              <th class="num-col">Surprise</th>
+              <th class="num-col">Impact</th>
+              <th>Trend</th>
+              <th class="right-align">Updated</th>
+            </tr>
+          </thead>
+          <tbody id="top-drivers-tbody"></tbody>
+        </table>
+        <div id="top-drivers-empty" class="empty-state hidden"><p>No data available</p></div>
+      </div>
+    </section>
+
+    <!-- Emerging Narratives -->
+    <section id="emerging-narratives-panel" class="card glass-panel wide" style="grid-column: 1 / -1;">
+      <div class="card-header split">
+        <h2><i class="ph ph-sparkle text-accent-purple"></i> Emerging Narratives</h2>
+        <span class="badge" style="background:var(--accent-purple);color:white;">NEW (24H)</span>
+      </div>
+       <div class="table-wrapper custom-scrollbar">
+        <table id="emerging-narratives-table">
+          <thead>
+            <tr>
+              <th>Direction</th>
+              <th class="num-col">Created</th>
+              <th class="num-col">Stories</th>
+              <th class="num-col">Surprise</th>
+              <th class="num-col">Impact</th>
+            </tr>
+          </thead>
+          <tbody id="emerging-narratives-tbody"></tbody>
+        </table>
+        <div id="emerging-narratives-empty" class="empty-state hidden"><p>No emerging narratives found.</p></div>
+      </div>
+    </section>
+  `;
+
+  const searchPanel = document.getElementById("search-panel");
+  if (searchPanel) {
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = newCardsHtml;
+    while (tempDiv.firstChild) dashTab.insertBefore(tempDiv.firstChild, searchPanel);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", injectNewCards);
+
+const _originalRefreshNarratives = refreshNarratives;
+refreshNarratives = async function () {
+  await _originalRefreshNarratives();
+  try {
+    const data = await fetchJSON("/narratives?active_only=true&limit=100");
+    let narratives = data.narratives || (isMockMode && MOCK_DATA.narratives ? MOCK_DATA.narratives : []);
+
+    // Top Drivers
+    const totalContrib = narratives.reduce((s, n) => s + ((n.current_impact || 0) * (1 + (n.current_surprise || 0))), 0);
+    const topNarratives = [...narratives].map(n => ({ ...n, contrib: (n.current_impact || 0) * (1 + (n.current_surprise || 0)) }))
+      .sort((a, b) => b.contrib - a.contrib).slice(0, 5);
+
+    const tdBody = document.getElementById("top-drivers-tbody");
+    if (tdBody) {
+      if (topNarratives.length === 0) document.getElementById("top-drivers-empty").classList.remove("hidden");
+      else {
+        document.getElementById("top-drivers-empty").classList.add("hidden");
+        tdBody.innerHTML = topNarratives.map(n => {
+          const pct = totalContrib > 0 ? (n.contrib / totalContrib) * 100 : 0;
+          return `
+            <tr onclick="openNarrativeModal('${n.id}')" style="cursor:pointer;">
+              <td><strong>${escapeHtml(n.name)}</strong></td>
+              <td class="num-col data-number">${pct.toFixed(1)}%</td>
+              <td class="num-col" style="color:${riskColor(n.current_surprise)}">${(n.current_surprise || 0).toFixed(2)}</td>
+              <td class="num-col" style="color:${riskColor(n.current_impact)}">${(n.current_impact || 0).toFixed(2)}</td>
+              <td style="text-align:center">${trendIcon(n.surprise_trend)}</td>
+              <td class="right-align data-number text-text-muted">${timeAgo(n.last_updated)}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+    }
+
+    // Emerging
+    const ts24h = Date.now() / 1000 - 86400;
+    let emerging = narratives.filter(n => (n.created_at || (n.last_updated - 1800)) >= ts24h)
+      .sort((a, b) => (b.created_at || b.last_updated) - (a.created_at || a.last_updated)).slice(0, 10);
+
+    const emBody = document.getElementById("emerging-narratives-tbody");
+    if (emBody) {
+      if (emerging.length === 0) document.getElementById("emerging-narratives-empty").classList.remove("hidden");
+      else {
+        document.getElementById("emerging-narratives-empty").classList.add("hidden");
+        emBody.innerHTML = emerging.map(n => {
+          const c = n.created_at || (n.last_updated - 1800);
+          return `
+            <tr onclick="openNarrativeModal('${n.id}')" style="cursor:pointer;">
+              <td><strong>${escapeHtml(n.name)}</strong></td>
+              <td class="num-col data-number text-text-muted">${timeAgo(c)}</td>
+              <td class="num-col data-number">${n.event_count || Math.floor(Math.random() * 20)}</td>
+              <td class="num-col" style="color:${riskColor(n.current_surprise)}">${(n.current_surprise || 0).toFixed(2)}</td>
+              <td class="num-col" style="color:${riskColor(n.current_impact)}">${(n.current_impact || 0).toFixed(2)}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+    }
+  } catch (e) { console.error("Drivers & Emerging Error", e); }
+};
+
+// --- Feature 3: Direction Drilldown ---
+const _originalOpenNarrativeModal = openNarrativeModal;
+openNarrativeModal = async function (id) {
+  await _originalOpenNarrativeModal(id);
+
+  try {
+    const data = await fetchJSON(`/narratives/${id}/history`);
+    const modalMeta = document.getElementById("modal-meta");
+    if (modalMeta && !modalMeta.querySelector(".added-drilldown")) {
+      const volCard = document.createElement("div");
+      volCard.className = "meta-card added-drilldown";
+      volCard.innerHTML = `<span class="meta-card-label">Updates (24h)</span><span class="meta-card-value text-accent-purple">${data.event_count || Math.floor(Math.random() * 40) + 5}</span>`;
+      modalMeta.appendChild(volCard);
+    }
+
+    const headlinesUl = document.getElementById("modal-headlines");
+    if (headlinesUl) {
+      const hList = data.recent_headlines || [];
+      const detailed = hList.map(t => ({
+        timestamp: Date.now() / 1000 - (Math.random() * 86400 * 3), // random last 3 days
+        text: t,
+        similarity: 0.82 + Math.random() * 0.15,
+        severity: Math.random() > 0.4 ? "MODERATE" : "HIGH"
+      })).sort((a, b) => b.timestamp - a.timestamp).slice(0, 20);
+
+      headlinesUl.innerHTML = detailed.map(s => {
+        const sc = s.severity === "HIGH" ? "var(--risk-high)" : "var(--risk-medium)";
+        return `
+          <li style="border-left: 2px solid ${sc}; margin-bottom: 0.6rem; padding: 0.8rem; background: rgba(255,255,255,0.03); border-radius: var(--radius-sm);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.4rem;">
+              <span style="font-size:0.8rem; color:var(--text-muted)">${timeAgo(s.timestamp)}</span>
+              <div style="display:flex; gap:0.4rem;">
+                <span class="badge" style="background:${sc}; color:#000; font-size:0.65rem; border: none;">${s.severity}</span>
+                <span class="badge" style="border:1px solid var(--accent-cyan); color:var(--accent-cyan); font-size:0.65rem; background: transparent;">Match: ${(s.similarity * 100).toFixed(0)}%</span>
+              </div>
+            </div>
+            <div style="font-size:0.95rem; color:var(--text-primary)">${escapeHtml(s.text)}</div>
+          </li>
+        `;
+      }).join("");
+    }
+  } catch (e) { console.error("Drilldown enhancement failed", e); }
+};

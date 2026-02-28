@@ -1415,3 +1415,59 @@ textarea {
 .text-red {
   color: var(--risk-high);
 }
+
+/* ### ADDED (do not edit above) ### */
+/* --- Features 4 & 5 Styles --- */
+.regime-banner {
+  margin: 0 auto 1rem;
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  transition: all 0.3s ease;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 0.3rem 1rem;
+}
+
+.regime-banner.low {
+  color: var(--risk-low);
+  border-color: var(--risk-low);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.regime-banner.medium {
+  color: var(--risk-medium);
+  border-color: var(--risk-medium);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.regime-banner.high {
+  color: var(--risk-high);
+  border-color: var(--risk-high);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.risk-momentum-container {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 1rem;
+}
+
+.momentum-item {
+  text-align: center;
+}
+
+.momentum-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.momentum-item .data-number {
+  font-size: 1.1rem;
+  margin-top: 0.2rem;
+}

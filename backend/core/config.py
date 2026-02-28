@@ -3,13 +3,8 @@ from typing import Optional
 
 
 class Settings(BaseSettings):
-<<<<<<< HEAD
     model_config = SettingsConfigDict(env_file=("../.env", ".env"), extra="ignore")
 
-    # Modal
-    modal_app_name: str = "model-risk-llm"   # must match APP_NAME in modal_app.py
-    
-=======
     # Modal (embedding only — LLM is served by Cerebras)
     modal_app_name: str = "model-risk-llm"   # must match APP_NAME in modal_app.py
 
@@ -17,7 +12,6 @@ class Settings(BaseSettings):
     cerebras_api_key: str = ""
     cerebras_model: str = "llama3.1-8b"
 
->>>>>>> origin/model
     # ChromaDB
     chroma_persist_dir: str = "./chroma_db"
     chroma_collection: str = "narratives"

@@ -3,14 +3,11 @@ uvicorn[standard]
 pydantic-settings
 modal
 chromadb
-<<<<<<< HEAD
 aiohttp
 feedparser
 praw
 sentence-transformers
-=======
 cerebras-cloud-sdk
->>>>>>> origin/model
 newsapi-python
 tweepy
 yfinance
