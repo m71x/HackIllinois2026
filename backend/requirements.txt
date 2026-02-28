@@ -3,6 +3,7 @@ uvicorn[standard]
 pydantic-settings
 modal
 chromadb
+cerebras-cloud-sdk
 newsapi-python
 tweepy
 yfinance
