@@ -460,63 +460,266 @@ function initMockSSE() {
 // SECTION 6 — Rest of Logic (Search, Modal, Ingest)
 // ============================================================
 
-document.getElementById("search-input").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
-document.getElementById("search-input").addEventListener("input", runSearch);
+// ── Omnibar: Ticker search with autocomplete & validation ───────────────
 
-async function runSearch() {
-  const query = document.getElementById("search-input").value.trim().toLowerCase();
+// S&P 500 + major US-listed tickers (backend validates via yfinance for unlisted symbols)
+const VALID_TICKERS = {
+  AAPL:"Apple Inc.",ABBV:"AbbVie Inc.",ABT:"Abbott Laboratories",ACN:"Accenture plc",
+  ADBE:"Adobe Inc.",ADI:"Analog Devices",ADM:"Archer-Daniels-Midland",ADP:"Automatic Data Processing",
+  ADSK:"Autodesk Inc.",AEP:"American Electric Power",AFL:"Aflac Inc.",AIG:"American Intl Group",
+  AMAT:"Applied Materials",AMD:"Advanced Micro Devices",AMGN:"Amgen Inc.",AMP:"Ameriprise Financial",
+  AMZN:"Amazon.com Inc.",ANET:"Arista Networks",ANSS:"Ansys Inc.",AON:"Aon plc",
+  APD:"Air Products & Chemicals",APH:"Amphenol Corp.",AVGO:"Broadcom Inc.",AXP:"American Express",
+  BA:"Boeing Co.",BAC:"Bank of America",BAX:"Baxter International",BDX:"Becton Dickinson",
+  BK:"Bank of New York Mellon",BKNG:"Booking Holdings",BLK:"BlackRock Inc.",BMY:"Bristol-Myers Squibb",
+  "BRK.B":"Berkshire Hathaway",BSX:"Boston Scientific",C:"Citigroup Inc.",CAT:"Caterpillar Inc.",
+  CB:"Chubb Ltd.",CCI:"Crown Castle",CDNS:"Cadence Design Systems",CEG:"Constellation Energy",
+  CHTR:"Charter Communications",CI:"Cigna Group",CL:"Colgate-Palmolive",CMCSA:"Comcast Corp.",
+  CME:"CME Group",CMG:"Chipotle Mexican Grill",COP:"ConocoPhillips",COST:"Costco Wholesale",
+  CRM:"Salesforce Inc.",CSCO:"Cisco Systems",CTAS:"Cintas Corp.",CVS:"CVS Health",
+  CVX:"Chevron Corp.",D:"Dominion Energy",DD:"DuPont de Nemours",DE:"Deere & Co.",
+  DHR:"Danaher Corp.",DIS:"Walt Disney Co.",DUK:"Duke Energy",ECL:"Ecolab Inc.",
+  EMR:"Emerson Electric",EOG:"EOG Resources",ETN:"Eaton Corp.",EW:"Edwards Lifesciences",
+  EXC:"Exelon Corp.",F:"Ford Motor Co.",FANG:"Diamondback Energy",FCX:"Freeport-McMoRan",
+  FDX:"FedEx Corp.",FI:"Fiserv Inc.",GD:"General Dynamics",GE:"GE Aerospace",
+  GILD:"Gilead Sciences",GM:"General Motors",GOOG:"Alphabet Inc. (C)",GOOGL:"Alphabet Inc. (A)",
+  GPN:"Global Payments",GS:"Goldman Sachs",HAL:"Halliburton Co.",HD:"Home Depot",
+  HON:"Honeywell International",HUM:"Humana Inc.",IBM:"IBM Corp.",ICE:"Intercontinental Exchange",
+  IDXX:"IDEXX Laboratories",INTC:"Intel Corp.",INTU:"Intuit Inc.",ISRG:"Intuitive Surgical",
+  ITW:"Illinois Tool Works",JNJ:"Johnson & Johnson",JPM:"JPMorgan Chase",KHC:"Kraft Heinz Co.",
+  KLAC:"KLA Corp.",KO:"Coca-Cola Co.",LEN:"Lennar Corp.",LHX:"L3Harris Technologies",
+  LIN:"Linde plc",LLY:"Eli Lilly & Co.",LMT:"Lockheed Martin",LOW:"Lowe's Companies",
+  LRCX:"Lam Research",MA:"Mastercard Inc.",MAR:"Marriott International",MCD:"McDonald's Corp.",
+  MCHP:"Microchip Technology",MCK:"McKesson Corp.",MCO:"Moody's Corp.",MDLZ:"Mondelez Intl",
+  MDT:"Medtronic plc",MET:"MetLife Inc.",META:"Meta Platforms",MMM:"3M Co.",
+  MO:"Altria Group",MPC:"Marathon Petroleum",MRK:"Merck & Co.",MRNA:"Moderna Inc.",
+  MS:"Morgan Stanley",MSCI:"MSCI Inc.",MSFT:"Microsoft Corp.",MSI:"Motorola Solutions",
+  MU:"Micron Technology",NFLX:"Netflix Inc.",NKE:"Nike Inc.",NOC:"Northrop Grumman",
+  NOW:"ServiceNow Inc.",NSC:"Norfolk Southern",NVDA:"NVIDIA Corp.",ORCL:"Oracle Corp.",
+  OXY:"Occidental Petroleum",PANW:"Palo Alto Networks",PAYX:"Paychex Inc.",PEP:"PepsiCo Inc.",
+  PFE:"Pfizer Inc.",PG:"Procter & Gamble",PGR:"Progressive Corp.",PH:"Parker-Hannifin",
+  PLTR:"Palantir Technologies",PM:"Philip Morris Intl",PNC:"PNC Financial",PSA:"Public Storage",
+  PSX:"Phillips 66",PYPL:"PayPal Holdings",QCOM:"Qualcomm Inc.",REGN:"Regeneron Pharma",
+  ROP:"Roper Technologies",ROST:"Ross Stores",RTX:"RTX Corp.",SBUX:"Starbucks Corp.",
+  SCHW:"Charles Schwab",SHW:"Sherwin-Williams",SLB:"Schlumberger",SMCI:"Super Micro Computer",
+  SNPS:"Synopsys Inc.",SO:"Southern Co.",SPG:"Simon Property Group",SPGI:"S&P Global",
+  SRE:"Sempra",SYK:"Stryker Corp.",SYY:"Sysco Corp.",T:"AT&T Inc.",
+  TFC:"Truist Financial",TGT:"Target Corp.",TJX:"TJX Companies",TMO:"Thermo Fisher Scientific",
+  TMUS:"T-Mobile US",TSLA:"Tesla Inc.",TSN:"Tyson Foods",TXN:"Texas Instruments",
+  UNH:"UnitedHealth Group",UNP:"Union Pacific",UPS:"United Parcel Service",URI:"United Rentals",
+  USB:"U.S. Bancorp",V:"Visa Inc.",VICI:"VICI Properties",VLO:"Valero Energy",
+  VRSK:"Verisk Analytics",VRTX:"Vertex Pharmaceuticals",VZ:"Verizon Communications",
+  WBA:"Walgreens Boots Alliance",WFC:"Wells Fargo",WM:"Waste Management",WMT:"Walmart Inc.",
+  XEL:"Xcel Energy",XOM:"Exxon Mobil",ZTS:"Zoetis Inc.",
+  // Popular non-S&P tickers
+  ABNB:"Airbnb Inc.",AI:"C3.ai Inc.",ARM:"Arm Holdings",COIN:"Coinbase Global",
+  CRWD:"CrowdStrike Holdings",DDOG:"Datadog Inc.",FTNT:"Fortinet Inc.",GME:"GameStop Corp.",
+  HOOD:"Robinhood Markets",MARA:"Marathon Digital",MELI:"MercadoLibre",NET:"Cloudflare Inc.",
+  PINS:"Pinterest Inc.",RIVN:"Rivian Automotive",RKLB:"Rocket Lab USA",ROKU:"Roku Inc.",
+  SE:"Sea Ltd.",SHOP:"Shopify Inc.",SNAP:"Snap Inc.",SNOW:"Snowflake Inc.",
+  SQ:"Block Inc.",SPOT:"Spotify Technology",SOFI:"SoFi Technologies",TTD:"The Trade Desk",
+  UBER:"Uber Technologies",U:"Unity Software",ZM:"Zoom Video Comms",ZS:"Zscaler Inc.",
+  // Major ETFs
+  SPY:"SPDR S&P 500 ETF",QQQ:"Invesco QQQ Trust",IWM:"iShares Russell 2000",
+  DIA:"SPDR Dow Jones ETF",VOO:"Vanguard S&P 500 ETF",VTI:"Vanguard Total Stock Market",
+  ARKK:"ARK Innovation ETF",XLF:"Financial Select SPDR",XLE:"Energy Select SPDR",
+  XLK:"Technology Select SPDR",XLV:"Health Care Select SPDR",GLD:"SPDR Gold Shares",
+  SLV:"iShares Silver Trust",TLT:"iShares 20+ Yr Treasury",HYG:"iShares High Yield Bond",
+  // ADRs & International
+  NVO:"Novo Nordisk",TSM:"Taiwan Semiconductor",BABA:"Alibaba Group",JD:"JD.com Inc.",
+  PDD:"PDD Holdings",ASML:"ASML Holding",SAP:"SAP SE",TM:"Toyota Motor",
+  NVS:"Novartis AG",UL:"Unilever plc",BP:"BP plc",SHEL:"Shell plc",RIO:"Rio Tinto",
+  BHP:"BHP Group",VALE:"Vale S.A.",
+};
+
+// ── Omnibar event wiring ────────────────────────────────────────────────
+
+document.getElementById("search-input").addEventListener("input", omnibarAutocomplete);
+document.getElementById("search-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); omnibarSubmit(); }
+  if (e.key === "Escape") omnibarDismiss();
+  // Arrow-key navigation through suggestions
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const items = document.querySelectorAll("#search-results .omnibar-suggestion");
+    if (!items.length) return;
+    const active = document.querySelector("#search-results .omnibar-suggestion.active");
+    let idx = active ? [...items].indexOf(active) : -1;
+    if (active) active.classList.remove("active");
+    idx = e.key === "ArrowDown" ? Math.min(idx + 1, items.length - 1) : Math.max(idx - 1, 0);
+    items[idx].classList.add("active");
+    items[idx].scrollIntoView({ block: "nearest" });
+  }
+});
+
+// Focus the input when user clicks anywhere in the omnibar row
+document.querySelector(".omnibar-input-row").addEventListener("click", () => {
+  document.getElementById("search-input").focus();
+});
+
+// Click outside → dismiss results
+document.addEventListener("mousedown", e => {
+  const omnibar = document.getElementById("omnibar");
+  if (omnibar && !omnibar.contains(e.target)) omnibarDismiss();
+});
+
+// ── Omnibar core functions ──────────────────────────────────────────────
+
+function omnibarDismiss() {
+  document.getElementById("search-results").innerHTML = "";
+}
+
+function omnibarAutocomplete() {
+  const raw = document.getElementById("search-input").value.trim().toUpperCase();
   const resDiv = document.getElementById("search-results");
 
-  let results = [];
-  if (isMockMode) {
-    if (query) {
-      // Filter mock data by text match
-      const matches = MOCK_DATA.narratives.filter(n =>
-        n.name.toLowerCase().includes(query) ||
-        n.description.toLowerCase().includes(query)
-      );
+  if (!raw) { resDiv.innerHTML = ""; return; }
 
-      results = matches.map((n, i) => ({
-        narrative: n,
-        similarity: 0.95 - (i * 0.05)
-      }));
+  // Filter tickers: prefix match on symbol, or partial match on company name
+  const matches = Object.entries(VALID_TICKERS)
+    .filter(([sym, name]) => sym.startsWith(raw) || name.toUpperCase().includes(raw))
+    .sort((a, b) => {
+      // Exact prefix matches first, then alphabetical
+      const aPrefix = a[0].startsWith(raw) ? 0 : 1;
+      const bPrefix = b[0].startsWith(raw) ? 0 : 1;
+      return aPrefix - bPrefix || a[0].localeCompare(b[0]);
+    })
+    .slice(0, 8);
 
-      // Fallback if no exact text match
-      if (results.length === 0) {
-        results = MOCK_DATA.narratives.slice(0, 2).map((n, i) => ({
-          narrative: n,
-          similarity: 0.65 - (i * 0.10)
-        }));
-      }
+  if (matches.length === 0) {
+    // Could still be a valid ticker not in our local set — let user try anyway
+    if (/^[A-Z]{1,5}(\.[A-Z])?$/.test(raw)) {
+      resDiv.innerHTML = `
+        <div class="omnibar-suggestion omnibar-try-anyway" onclick="omnibarSelect('${raw}')">
+          <span class="omnibar-ticker-sym">${escapeHtml(raw)}</span>
+          <span class="omnibar-ticker-name">Look up on market…</span>
+          <i class="ph ph-arrow-right"></i>
+        </div>`;
     } else {
-      // No query — show all narratives sorted by risk as defaults
-      results = [...MOCK_DATA.narratives]
-        .sort((a, b) => b.model_risk - a.model_risk)
-        .map((n, i) => ({
-          narrative: n,
-          similarity: 1.0 - (i * 0.02)
-        }));
+      resDiv.innerHTML = `
+        <div class="omnibar-no-match">
+          <i class="ph ph-warning-circle"></i> Enter a valid ticker symbol
+        </div>`;
     }
-  } else {
-    if (!query) return;
-    resDiv.innerHTML = `<div class="spinner"></div>`;
-    const data = await postJSON("/narratives/search", { query, n_results: 5 });
-    results = data.results;
+    return;
   }
 
-  resDiv.innerHTML = results.map((r, i) => `
-    <div class="search-result" onclick="openNarrativeModal('${r.narrative.id}')">
-      <strong>${i + 1}. ${escapeHtml(r.narrative.name)}</strong>
-      <div style="display:flex; justify-content:space-between; margin-top:0.4rem;">
-        <span class="distance">Match: <span class="text-accent-cyan">${((r.similarity) * 100).toFixed(0)}%</span></span>
-        <span class="data-number" style="color:${riskColor(r.narrative.model_risk)}">Rsk: ${(r.narrative.model_risk).toFixed(2)}</span>
-      </div>
+  resDiv.innerHTML = matches.map(([sym, name]) => `
+    <div class="omnibar-suggestion" data-symbol="${sym}" onclick="omnibarSelect('${sym}')">
+      <span class="omnibar-ticker-sym">${sym}</span>
+      <span class="omnibar-ticker-name">${escapeHtml(name)}</span>
     </div>
   `).join("");
 }
 
-// Show default search results on load
-setTimeout(runSearch, 500);
+function omnibarSelect(symbol) {
+  document.getElementById("search-input").value = symbol;
+  omnibarSubmit();
+}
+
+async function omnibarSubmit() {
+  const input = document.getElementById("search-input");
+  const resDiv = document.getElementById("search-results");
+  let symbol = input.value.trim().toUpperCase();
+
+  // If an arrow-key-highlighted suggestion exists, use that instead
+  const active = document.querySelector("#search-results .omnibar-suggestion.active");
+  if (active && active.dataset.symbol) symbol = active.dataset.symbol;
+
+  if (!symbol) return;
+
+  // Validate format: 1-5 uppercase letters, optional dot suffix (BRK.B)
+  if (!/^[A-Z]{1,5}(\.[A-Z])?$/.test(symbol)) {
+    resDiv.innerHTML = `<div class="omnibar-no-match">
+      <i class="ph ph-warning-circle"></i> "${escapeHtml(symbol)}" is not a valid ticker format
+    </div>`;
+    return;
+  }
+
+  input.value = symbol;
+  resDiv.innerHTML = `<div class="omnibar-loading"><div class="spinner"></div> Looking up <strong>${symbol}</strong>…</div>`;
+
+  try {
+    let result;
+
+    if (isMockMode) {
+      const mock = MOCK_TICKER_NARRATIVES[symbol];
+      if (!mock) {
+        resDiv.innerHTML = `<div class="omnibar-no-match">
+          <i class="ph ph-warning-circle"></i> No data found for ticker <strong>${symbol}</strong>
+        </div>`;
+        return;
+      }
+      const matchedNarratives = mock.ids.map((id, i) => {
+        const n = MOCK_DATA.narratives.find(n => n.id === id);
+        if (!n) return null;
+        return {
+          id: n.id, name: n.name, description: n.description,
+          distance: 0.15 + i * 0.08, similarity: 0.92 - i * 0.04,
+          model_risk: n.model_risk, current_surprise: n.current_surprise,
+          current_impact: n.current_impact, event_count: n.event_count, is_active: true,
+        };
+      }).filter(Boolean);
+      result = {
+        ticker: symbol, company_name: mock.company_name,
+        sector: mock.sector, industry: mock.industry,
+        narratives: matchedNarratives,
+      };
+    } else {
+      const res = await fetch(`${API}/tickers/${encodeURIComponent(symbol)}?n_results=10`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        resDiv.innerHTML = `<div class="omnibar-no-match">
+          <i class="ph ph-warning-circle"></i> ${escapeHtml(err.detail || `Ticker '${symbol}' not found`)}
+        </div>`;
+        return;
+      }
+      result = await res.json();
+    }
+
+    // Also activate the narrative panel ticker filter
+    tickerFilterActive = true;
+    tickerFilterData = result;
+    document.getElementById("ticker-input").value = symbol;
+    renderTickerFilter(result);
+
+    // Render results in omnibar dropdown
+    let html = `<div class="omnibar-ticker-result">
+      <div class="omnibar-company-header">
+        <span class="ticker-symbol-badge">${result.ticker}</span>
+        <div>
+          <div class="omnibar-company-title">${escapeHtml(result.company_name)}</div>
+          <div class="omnibar-company-meta">${result.sector || "—"} · ${result.industry || "—"}</div>
+        </div>
+      </div>`;
+
+    if (result.narratives.length === 0) {
+      html += `<div class="omnibar-empty-narratives">No related narratives found</div>`;
+    } else {
+      html += `<div class="omnibar-narrative-list">`;
+      html += result.narratives.map((n, i) => {
+        const simPct = ((n.similarity ?? 0) * 100).toFixed(0);
+        return `<div class="search-result" onclick="openNarrativeModal('${n.id}')">
+          <strong>${i + 1}. ${escapeHtml(n.name)}</strong>
+          <div style="display:flex; justify-content:space-between; margin-top:0.4rem;">
+            <span class="distance">Match: <span class="text-accent-cyan">${simPct}%</span></span>
+            <span class="data-number" style="color:${riskColor(n.model_risk)}">Rsk: ${(n.model_risk ?? 0).toFixed(2)}</span>
+          </div>
+        </div>`;
+      }).join("");
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+    resDiv.innerHTML = html;
+
+  } catch (e) {
+    console.error("Omnibar ticker search failed:", e);
+    resDiv.innerHTML = `<div class="omnibar-no-match">
+      <i class="ph ph-warning-circle"></i> Search failed — check your connection
+    </div>`;
+  }
+}
 
 document.getElementById("ingest-btn").addEventListener("click", async () => {
   const btn = document.getElementById("ingest-btn");
@@ -949,11 +1152,11 @@ function injectNewCards() {
     </section>
   `;
 
-  const searchPanel = document.getElementById("search-panel");
-  if (searchPanel) {
+  const feedPanel = document.getElementById("feed-panel");
+  if (feedPanel) {
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = newCardsHtml;
-    while (tempDiv.firstChild) dashTab.insertBefore(tempDiv.firstChild, searchPanel);
+    while (tempDiv.firstChild) dashTab.insertBefore(tempDiv.firstChild, feedPanel);
   }
 }
 

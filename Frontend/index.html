@@ -61,7 +61,21 @@
     </div>
   </header>
 
-
+  <!-- ===================== OMNIBAR: Ticker Search ===================== -->
+  <div id="omnibar" class="omnibar-wrapper">
+    <div class="omnibar-inner">
+      <div class="omnibar-input-row">
+        <i class="ph ph-chart-line-up omnibar-icon"></i>
+        <input id="search-input" type="text"
+          placeholder="Search by ticker — AAPL, NVDA, JPM, XOM..."
+          autocomplete="off" spellcheck="false" />
+        <kbd class="omnibar-kbd">Enter</kbd>
+      </div>
+      <div id="search-results" class="omnibar-results custom-scrollbar">
+        <!-- Populated by dashboard.js -->
+      </div>
+    </div>
+  </div>
 
   <!-- ===================== MAIN GRID ===================== -->
   <main id="dashboard-tab" class="grid tab-pane active">
@@ -290,23 +304,6 @@
       <div id="narratives-empty" class="empty-state hidden">
         <div class="spinner"></div>
         <p>Awaiting Narrative Data...</p>
-      </div>
-    </section>
-
-    <!-- ── ROW 3: Semantic Search ── -->
-    <section id="search-panel" class="card glass-panel">
-      <div class="card-header">
-        <h2><i class="ph ph-magnifying-glass"></i> Semantic Search</h2>
-      </div>
-      <div class="search-container">
-        <div class="input-row has-icon">
-          <i class="ph ph-magnifying-glass input-icon"></i>
-          <input id="search-input" type="text" placeholder="e.g. sanctions affecting energy exports"
-            autocomplete="off" />
-        </div>
-        <div id="search-results" class="results-container custom-scrollbar">
-          <!-- Populated by dashboard.js -->
-        </div>
       </div>
     </section>
 
