@@ -71,23 +71,42 @@ $serverJob = Start-Process -FilePath ".venv\Scripts\python.exe" `
     -WorkingDirectory "$ROOT\backend" `
     -PassThru -NoNewWindow
 
-# Wait for server to be ready
+# Wait for server to be ready (two-phase: TCP port check, then HTTP health)
 Write-Host -NoNewline "    Waiting for server"
-for ($i = 1; $i -le 30; $i++) {
+$serverReady = $false
+for ($i = 1; $i -le 60; $i++) {
+    # Phase 1: Check if the TCP port is open
+    $tcp = $null
     try {
-        Invoke-WebRequest -Uri "http://localhost:8000/health" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop | Out-Null
-        Write-Host " [OK]" -ForegroundColor Green
-        break
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect("127.0.0.1", 8000)
+        $tcp.Close()
     }
     catch {
         Write-Host -NoNewline "."
         Start-Sleep -Seconds 1
-        if ($i -eq 30) {
-            Write-Host " [FAILED]" -ForegroundColor Red
-            Stop-Process -Id $serverJob.Id -Force -ErrorAction SilentlyContinue
-            exit 1
+        continue
+    }
+
+    # Phase 2: Port is open - now confirm HTTP health endpoint responds
+    try {
+        $wc = New-Object System.Net.WebClient
+        $resp = $wc.DownloadString("http://127.0.0.1:8000/health")
+        if ($resp -match '"status"') {
+            Write-Host " [OK]" -ForegroundColor Green
+            $serverReady = $true
+            break
         }
     }
+    catch {
+        Write-Host -NoNewline "."
+        Start-Sleep -Seconds 1
+    }
+}
+if (-not $serverReady) {
+    Write-Host " [FAILED]" -ForegroundColor Red
+    Write-Host "    Server process may still be starting. Check if http://localhost:8000/health responds manually." -ForegroundColor Yellow
+    Write-Host "    Not killing the server - it may just need more time." -ForegroundColor Yellow
 }
 
 # ----------------------------------------------------------
