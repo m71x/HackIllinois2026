@@ -287,11 +287,11 @@ async function updateRiskChart() {
           {
             label: "Risk Index",
             data: values,
-            borderColor: "#00f0ff",
+            borderColor: "#f59e0b",
             backgroundColor: gradient,
             borderWidth: 2,
             pointBackgroundColor: "#050811",
-            pointBorderColor: "#00f0ff",
+            pointBorderColor: "#f59e0b",
             pointBorderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 6,
@@ -326,7 +326,7 @@ async function updateRiskChart() {
             backgroundColor: "rgba(16,22,38,0.9)",
             titleFont: { family: "'Outfit'" },
             bodyFont: { family: "'JetBrains Mono'" },
-            borderColor: "rgba(0,240,255,0.3)",
+            borderColor: "rgba(161,161,170,0.3)",
             borderWidth: 1,
             filter: function (tooltipItem) {
               return tooltipItem.dataset.label !== 'Average';
@@ -754,7 +754,7 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
   // ── Lights ──
   const ambientLight = new THREE.AmbientLight(0x334466, 0.8);
   scene.add(ambientLight);
-  const pointLight = new THREE.PointLight(0x00f0ff, 1.2, 30);
+  const pointLight = new THREE.PointLight(0xf59e0b, 1.2, 30);
   pointLight.position.set(2, 4, 3);
   scene.add(pointLight);
   const pointLight2 = new THREE.PointLight(0xf43f5e, 0.6, 25);
@@ -777,8 +777,8 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
   // ── Central ticker node (large glowing sphere) ──
   const centerGeo = new THREE.SphereGeometry(0.35, 32, 32);
   const centerMat = new THREE.MeshPhongMaterial({
-    color: 0x00f0ff,
-    emissive: 0x00f0ff,
+    color: 0xf59e0b,
+    emissive: 0xf59e0b,
     emissiveIntensity: 0.5,
     transparent: true,
     opacity: 0.95,
@@ -791,7 +791,7 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
   // Inner glow sphere
   const glowGeo = new THREE.SphereGeometry(0.55, 32, 32);
   const glowMat = new THREE.MeshBasicMaterial({
-    color: 0x00f0ff,
+    color: 0xf59e0b,
     transparent: true,
     opacity: 0.08,
   });
@@ -849,7 +849,7 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
 
   // ── Center label ──
   const centerLabel = makeTextSprite(tickerSymbol, {
-    fontSize: 56, color: "#00f0ff", bgColor: "rgba(0, 240, 255, 0.12)", scale: 0.018,
+    fontSize: 56, color: "#f59e0b", bgColor: "rgba(245, 158, 11, 0.12)", scale: 0.018,
   });
   centerLabel.position.set(0, 0.65, 0);
   scene.add(centerLabel);
@@ -921,7 +921,7 @@ function render3DVectorSpace(container, tickerSymbol, narratives) {
 
     // Connection line from center to node
     const similarity = n.similarity ?? 0.5;
-    const lineColor = color.clone().lerp(new THREE.Color(0x00f0ff), 0.3);
+    const lineColor = color.clone().lerp(new THREE.Color(0xf59e0b), 0.3);
     const lineMat = new THREE.LineBasicMaterial({
       color: lineColor,
       transparent: true,
@@ -1167,7 +1167,7 @@ function openTickerAnalysis(result) {
           <h3 class="ta-section-title"><i class="ph ph-cube"></i> Vector Space Proximity</h3>
           <div class="ta-3d-container" id="ta-3d-container"></div>
           <div class="ta-3d-legend">
-            <span class="ta-3d-legend-item"><span class="ta-3d-dot" style="background:#00f0ff;box-shadow:0 0 6px #00f0ff"></span> Search Query</span>
+            <span class="ta-3d-legend-item"><span class="ta-3d-dot" style="background:#f59e0b;box-shadow:0 0 6px #f59e0b"></span> Search Query</span>
             <span class="ta-3d-legend-item"><span class="ta-3d-dot" style="background:#10b981"></span> Low Risk</span>
             <span class="ta-3d-legend-item"><span class="ta-3d-dot" style="background:#f59e0b"></span> Med Risk</span>
             <span class="ta-3d-legend-item"><span class="ta-3d-dot" style="background:#f43f5e"></span> High Risk</span>
@@ -1288,7 +1288,7 @@ async function openNarrativeModal(id) {
       labels: data.surprise_series.map(p => new Date(p.timestamp * 1000).toLocaleTimeString()),
       datasets: [
         { label: "Surprise", data: data.surprise_series.map(p => p.value), borderColor: "#f43f5e", tension: 0.3, borderWidth: 2, pointRadius: 3 },
-        { label: "Impact", data: data.impact_series.map(p => p.value), borderColor: isLightMode ? "#0284c7" : "rgba(0, 240, 255, 0.6)", tension: 0.3, borderWidth: 2, pointRadius: 3 }
+        { label: "Impact", data: data.impact_series.map(p => p.value), borderColor: "#d97706", tension: 0.3, borderWidth: 2, pointRadius: 3 }
       ]
     }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: tickColor } } }, scales: { y: { min: 0, max: 1, grid: { color: gridColor }, ticks: { color: tickColor } }, x: { display: false } } }
   });
@@ -2216,7 +2216,7 @@ let _cachedNarratives = [];   // stored for radar + ring charts
 
 // Neon palette for multi-series charts
 const NEON_PALETTE = [
-  { line: "#00f0ff", fill: "rgba(0, 240, 255, 0.18)", glow: "rgba(0, 240, 255, 0.5)" },
+  { line: "#f59e0b", fill: "rgba(245, 158, 11, 0.18)", glow: "rgba(245, 158, 11, 0.5)" },
   { line: "#f43f5e", fill: "rgba(244, 63, 94, 0.15)", glow: "rgba(244, 63, 94, 0.5)" },
   { line: "#8b5cf6", fill: "rgba(139, 92, 246, 0.15)", glow: "rgba(139, 92, 246, 0.5)" },
   { line: "#f59e0b", fill: "rgba(245, 158, 11, 0.15)", glow: "rgba(245, 158, 11, 0.5)" },
@@ -2270,7 +2270,7 @@ function _baseChartOpts(yMin, yMax) {
         backgroundColor: "rgba(16,22,38,0.92)",
         titleFont: { family: "'Outfit'" },
         bodyFont: { family: "'JetBrains Mono'" },
-        borderColor: "rgba(0,240,255,0.3)",
+        borderColor: "rgba(161,161,170,0.3)",
         borderWidth: 1,
       }
     }
@@ -2523,7 +2523,7 @@ function _renderScatterChart(ctx, labels, values, history) {
           backgroundColor: "rgba(16,22,38,0.92)",
           titleFont: { family: "'Outfit'" },
           bodyFont: { family: "'JetBrains Mono'" },
-          borderColor: "rgba(0,240,255,0.3)",
+          borderColor: "rgba(161,161,170,0.3)",
           borderWidth: 1,
           callbacks: {
             title: (items) => labels[items[0].parsed.x] || "",
@@ -2543,7 +2543,7 @@ function _renderScatterChart(ctx, labels, values, history) {
         if (meta.data.length < 2) return;
         ctx2.save();
         ctx2.beginPath();
-        ctx2.strokeStyle = "rgba(0, 240, 255, 0.15)";
+        ctx2.strokeStyle = "rgba(245, 158, 11, 0.15)";
         ctx2.lineWidth = 1;
         ctx2.setLineDash([3, 4]);
         meta.data.forEach((pt, i) => {
@@ -2648,7 +2648,7 @@ function _renderRadarChart(ctx) {
           backgroundColor: "rgba(16,22,38,0.94)",
           titleFont: { family: "'Outfit'", size: 13 },
           bodyFont: { family: "'JetBrains Mono'", size: 11 },
-          borderColor: "rgba(0,240,255,0.3)",
+          borderColor: "rgba(161,161,170,0.3)",
           borderWidth: 1,
           callbacks: {
             title: (items) => items[0]?.dataset.label || "",
@@ -2759,7 +2759,7 @@ function _renderRingChart(ctx) {
           backgroundColor: "rgba(16,22,38,0.94)",
           titleFont: { family: "'Outfit'", size: 13 },
           bodyFont: { family: "'JetBrains Mono'", size: 11 },
-          borderColor: "rgba(0,240,255,0.3)",
+          borderColor: "rgba(161,161,170,0.3)",
           borderWidth: 1,
           callbacks: {
             label: (item) => {
