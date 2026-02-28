@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Real-World Model Risk Engine" />
+  <title>Nexus | Model Risk Engine</title>
+
+  <!-- Premium Typography: Outfit for headers, Inter for UI, JetBrains Mono for data -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet" />
+
+  <!-- Phosphor Icons for premium iconography -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body class="dark-theme">
+
+  <!-- Ambient Background Glows -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+  <div class="ambient-glow glow-3"></div>
+
+  <!-- ===================== HEADER ===================== -->
+  <header id="main-header" class="glass-panel">
+    <div class="header-left">
+      <div class="logo-mark"><i class="ph-bold ph-hexagon"></i></div>
+      <div class="header-titles">
+        <h1>NEXUS <span class="fw-light">Risk Engine</span></h1>
+        <span class="subtitle">HackIllinois 2026 // Real-time Narrative Tracker</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status-pill mock-mode-pill" id="mock-badge" style="display:none;">
+        <i class="ph-fill ph-flask"></i> MOCK DATA
+      </div>
+      <div class="status-pill live-pill">
+        <div class="pulse-dot"></div> <span id="conn-status">LIVE</span>
+      </div>
+      <div id="last-updated" class="last-updated"><i class="ph ph-clock"></i> —</div>
+    </div>
+  </header>
+
+  <!-- ===================== NAVIGATION TABS ===================== -->
+  <nav class="tabs-nav">
+    <button class="tab-btn active" data-target="dashboard-tab"><i class="ph ph-squares-four"></i> Risk
+      Dashboard</button>
+    <button class="tab-btn" data-target="stocks-tab"><i class="ph ph-trend-up"></i> Global Equities</button>
+  </nav>
+
+  <!-- ===================== MAIN GRID ===================== -->
+  <main id="dashboard-tab" class="grid tab-pane active">
+
+    <!-- ── ROW 1: Risk Gauge ── -->
+    <section id="gauge-panel" class="card glass-panel">
+      <div class="card-header">
+        <h2><i class="ph ph-gauge"></i> Model Risk Index</h2>
+      </div>
+      <div class="gauge-content">
+        <div class="risk-value-wrapper">
+          <div id="risk-value" class="data-number">—</div>
+          <div id="risk-label" class="risk-label">Awaiting Data</div>
+        </div>
+        <div class="risk-bar-container">
+          <div class="risk-bar">
+            <div id="risk-fill" class="risk-fill">
+              <div class="risk-fill-glow"></div>
+            </div>
+          </div>
+          <div class="risk-bar-labels">
+            <span>LOW</span>
+            <span>MED</span>
+            <span>HIGH</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── ROW 1: 24h Risk Chart ── -->
+    <section id="chart-panel" class="card glass-panel">
+      <div class="card-header">
+        <h2><i class="ph ph-chart-line-up"></i> 24h Risk History</h2>
+        <div class="chart-actions">
+          <button class="icon-btn"><i class="ph ph-arrows-out"></i></button>
+        </div>
+      </div>
+      <div class="chart-wrapper">
+        <canvas id="risk-chart"></canvas>
+      </div>
+    </section>
+
+    <!-- ── ROW 1: Pipeline Status ── -->
+    <section id="pipeline-panel" class="card glass-panel">
+      <div class="card-header">
+        <h2><i class="ph ph-activity"></i> Pipeline Status</h2>
+      </div>
+      <div class="stats-grid" id="pipeline-stats">
+        <div class="stat-box">
+          <span class="stat-label">Ingested</span>
+          <span class="stat-val data-number" id="stat-ingested">—</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Created</span>
+          <span class="stat-val data-number text-accent-cyan" id="stat-created">—</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Updated</span>
+          <span class="stat-val data-number text-accent-blue" id="stat-updated">—</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Active</span>
+          <span class="stat-val data-number" id="stat-active">—</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Queue</span>
+          <span class="stat-val data-number text-accent-yellow" id="stat-queue">—</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Errors</span>
+          <span class="stat-val data-number text-accent-red" id="stat-errors">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── ROW 2: Narrative Table (full width) ── -->
+    <section id="narratives-panel" class="card glass-panel wide">
+      <div class="card-header split">
+        <h2><i class="ph ph-graph"></i> Active Narrative Directions</h2>
+        <div class="header-controls">
+          <div class="select-wrapper">
+            <i class="ph ph-sort-descending"></i>
+            <select id="sort-select">
+              <option value="risk">Sort by Risk</option>
+              <option value="events">Sort by Events</option>
+              <option value="updated">Sort by Recent</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="table-wrapper custom-scrollbar">
+        <table id="narratives-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Description</th>
+              <th class="num-col">Surprise</th>
+              <th class="num-col">Impact</th>
+              <th class="num-col">Risk</th>
+              <th class="num-col">Events</th>
+              <th>Trend</th>
+              <th class="right-align">Updated</th>
+            </tr>
+          </thead>
+          <tbody id="narratives-tbody">
+            <!-- Populated by dashboard.js -->
+          </tbody>
+        </table>
+      </div>
+      <div id="narratives-empty" class="empty-state hidden">
+        <div class="spinner"></div>
+        <p>Awaiting Narrative Data...</p>
+      </div>
+    </section>
+
+    <!-- ── ROW 3: Semantic Search ── -->
+    <section id="search-panel" class="card glass-panel">
+      <div class="card-header">
+        <h2><i class="ph ph-magnifying-glass"></i> Semantic Search</h2>
+      </div>
+      <div class="search-container">
+        <div class="input-row has-icon">
+          <i class="ph ph-magnifying-glass input-icon"></i>
+          <input id="search-input" type="text" placeholder="e.g. sanctions affecting energy exports"
+            autocomplete="off" />
+          <button id="search-btn" class="btn-primary">Search</button>
+        </div>
+        <div id="search-results" class="results-container custom-scrollbar">
+          <!-- Populated by dashboard.js -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ── ROW 3: Live Feed ── -->
+    <section id="feed-panel" class="card glass-panel">
+      <div class="card-header split">
+        <h2><i class="ph ph-broadcast"></i> Live Feed</h2>
+        <span id="feed-status" class="feed-status-text">Connecting...</span>
+      </div>
+      <ul id="live-feed" class="custom-scrollbar feed-list" aria-live="polite">
+        <!-- Populated via SSE/Mock in dashboard.js -->
+      </ul>
+    </section>
+
+    <!-- ── ROW 4: Manual Ingest (full width) ── -->
+    <section id="ingest-panel" class="card glass-panel wide">
+      <div class="card-header">
+        <h2><i class="ph ph-upload-simple"></i> Manual Ingest</h2>
+      </div>
+      <div class="ingest-form">
+        <div class="input-row">
+          <input id="ingest-headline" type="text" placeholder="Headline — e.g. Federal Reserve raises rates by 50bps"
+            autocomplete="off" />
+        </div>
+        <div class="input-row">
+          <textarea id="ingest-body" placeholder="Story body (optional) — paste article text here" rows="2"></textarea>
+        </div>
+        <div class="ingest-actions split">
+          <div id="ingest-result" class="ingest-result"></div>
+          <button id="ingest-btn" class="btn-glow"><i class="ph-bold ph-lightning"></i> Ingest Story</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================== STOCKS / EQUITIES TAB ===================== -->
+  <main id="stocks-tab" class="grid tab-pane hidden">
+
+    <!-- ROW 1: Timezone / Market Clocks Panel -->
+    <section class="card glass-panel wide">
+      <div class="card-header">
+        <h2><i class="ph ph-globe"></i> Global Markets & Timezones</h2>
+      </div>
+      <div class="clocks-grid" id="market-clocks">
+        <!-- Populated via JS -->
+      </div>
+    </section>
+
+    <!-- ROW 2: Active Stocks Panel -->
+    <section class="card glass-panel wide" style="min-height: 500px;">
+      <div class="card-header split">
+        <h2><i class="ph ph-chart-line"></i> Active Equities Watchlist (Live Data)</h2>
+        <span class="feed-status-text" id="stocks-status" style="color: var(--risk-low);">Connected</span>
+      </div>
+      <div class="table-wrapper custom-scrollbar">
+        <table id="stocks-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Company</th>
+              <th class="num-col">Price (USD)</th>
+              <th class="num-col">Change</th>
+              <th class="num-col">% Change</th>
+              <th class="num-col">Volume</th>
+            </tr>
+          </thead>
+          <tbody id="stocks-tbody">
+            <!-- Populated via JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ===================== NARRATIVE DETAIL MODAL ===================== -->
+  <div id="narrative-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-content glass-panel glow-border">
+      <button id="modal-close" class="modal-close-btn" aria-label="Close modal"><i class="ph ph-x"></i></button>
+      <div class="modal-header">
+        <div class="modal-badge"><i class="ph-fill ph-graph"></i> Narrative Profile</div>
+        <h2 id="modal-name"></h2>
+        <p id="modal-description" class="modal-desc"></p>
+      </div>
+      <div class="modal-grid">
+        <div class="modal-meta-cards" id="modal-meta">
+          <!-- Populated by JS -->
+        </div>
+        <div class="chart-wrapper modal-chart-wrapper card-inner">
+          <canvas id="modal-chart"></canvas>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <h3><i class="ph ph-article"></i> Contributing Headlines</h3>
+        <ul id="modal-headlines" class="modal-headlines custom-scrollbar"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== SCRIPTS ===================== -->
+  <script src="dashboard.js"></script>
+
+</body>
+
+</html>
