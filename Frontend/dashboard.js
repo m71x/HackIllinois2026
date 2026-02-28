@@ -231,9 +231,18 @@ async function updateRiskChart() {
   // Update Chart Insights Panel
   let maxRiskPoint = history[0];
   let minRiskPoint = history[0];
-  history.forEach(p => {
-    if (p.model_risk_index > maxRiskPoint.model_risk_index) maxRiskPoint = p;
-    if (p.model_risk_index < minRiskPoint.model_risk_index) minRiskPoint = p;
+  window.currentMaxIndex = 0;
+  window.currentMinIndex = 0;
+
+  history.forEach((p, i) => {
+    if (p.model_risk_index > maxRiskPoint.model_risk_index) {
+      maxRiskPoint = p;
+      window.currentMaxIndex = i;
+    }
+    if (p.model_risk_index < minRiskPoint.model_risk_index) {
+      minRiskPoint = p;
+      window.currentMinIndex = i;
+    }
   });
 
   const formatInsightsTime = (ts) => {
@@ -366,24 +375,20 @@ document.getElementById("chart-expand-btn").addEventListener("click", (e) => {
 });
 
 // Chart Tooltip Trigger Events
-const triggerChartTooltip = (valStr) => {
-  if (!riskChart) return;
-  const targetVal = parseFloat(valStr);
-  const index = riskChart.data.datasets[0].data.findIndex(v => Math.abs(v - targetVal) < 0.001);
-  if (index !== -1) {
-    const activeEls = [{ datasetIndex: 0, index }];
-    riskChart.setActiveElements(activeEls);
-    riskChart.tooltip.setActiveElements(activeEls, { x: 0, y: 0 });
-    riskChart.update();
-  }
+const triggerChartTooltipByIndex = (index) => {
+  if (!riskChart || index === undefined || index === -1) return;
+  const activeEls = [{ datasetIndex: 0, index }];
+  riskChart.setActiveElements(activeEls);
+  riskChart.tooltip.setActiveElements(activeEls, { x: 0, y: 0 });
+  riskChart.update();
 };
 
 document.getElementById("btn-max-risk").addEventListener("click", () => {
-  triggerChartTooltip(document.getElementById("insight-max-val").textContent);
+  triggerChartTooltipByIndex(window.currentMaxIndex);
 });
 
 document.getElementById("btn-min-risk").addEventListener("click", () => {
-  triggerChartTooltip(document.getElementById("insight-min-val").textContent);
+  triggerChartTooltipByIndex(window.currentMinIndex);
 });
 
 document.getElementById("btn-avg-risk").addEventListener("click", () => {

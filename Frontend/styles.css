@@ -490,6 +490,11 @@ h3 {
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+#risk-chart {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* Expanded Chart State */
 .transition-panel.expanded {
   position: fixed !important;
@@ -555,6 +560,7 @@ h3 {
   font-size: 1.5rem;
   font-weight: 700;
   line-height: 1.2;
+  color: var(--text-primary);
 }
 
 .insight-time {
