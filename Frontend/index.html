@@ -96,13 +96,50 @@
       <div class="card-header split">
         <h2><i class="ph ph-chart-line-up"></i> <span id="chart-title-text">24h Risk History</span></h2>
         <div class="chart-controls">
-          <div class="time-range-toggles">
+          <!-- Chart Type Selector -->
+          <div class="chart-type-dropdown" id="chart-type-dropdown">
+            <button class="chart-type-toggle" id="chart-type-toggle">
+              <i class="ph ph-chart-line" id="chart-type-icon"></i>
+              <span id="chart-type-label">Line</span>
+              <i class="ph ph-caret-down chart-type-caret"></i>
+            </button>
+            <div class="chart-type-menu hidden" id="chart-type-menu">
+              <div class="chart-type-item selected" data-type="line">
+                <i class="ph ph-chart-line"></i><span>Line</span>
+                <small>Classic time series</small>
+              </div>
+              <div class="chart-type-item" data-type="bars">
+                <i class="ph ph-chart-bar"></i><span>Neon Bars</span>
+                <small>Risk-colored columns</small>
+              </div>
+              <div class="chart-type-item" data-type="bands">
+                <i class="ph ph-stack"></i><span>Area Bands</span>
+                <small>Severity zone layers</small>
+              </div>
+              <div class="chart-type-item" data-type="scatter">
+                <i class="ph ph-chart-scatter"></i><span>Scatter</span>
+                <small>Risk pulse field</small>
+              </div>
+              <div class="chart-type-item" data-type="radar">
+                <i class="ph ph-hexagon"></i><span>Radar</span>
+                <small>Narrative dimensions</small>
+              </div>
+              <div class="chart-type-item" data-type="ring">
+                <i class="ph ph-circle-notch"></i><span>Ring</span>
+                <small>Risk composition</small>
+              </div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="time-range-toggles" id="time-range-toggles">
             <button class="time-btn active" data-range="1d">1D</button>
             <button class="time-btn" data-range="1m">1M</button>
             <button class="time-btn" data-range="1y">1Y</button>
             <button class="time-btn" data-range="ytd">YTD</button>
           </div>
-          <div class="chart-actions">
+          <div class="chart-actions" id="chart-actions-nav">
             <button class="icon-btn page-btn" id="chart-prev" title="Previous Period"><i
                 class="ph-bold ph-caret-left"></i></button>
             <button class="icon-btn page-btn" id="chart-next" title="Next Period" disabled><i
@@ -187,6 +224,18 @@
       <div class="card-header split">
         <h2><i class="ph ph-graph"></i> Active Narrative Directions</h2>
         <div class="header-controls">
+          <!-- Ticker Filter -->
+          <div class="ticker-search-bar" id="ticker-search-bar">
+            <div class="ticker-input-group">
+              <i class="ph ph-trend-up ticker-input-icon"></i>
+              <input id="ticker-input" type="text" placeholder="Filter by ticker (e.g. AAPL)"
+                autocomplete="off" maxlength="10" spellcheck="false" />
+              <button id="ticker-search-btn" class="ticker-go-btn" title="Search ticker">
+                <i class="ph-bold ph-magnifying-glass"></i>
+              </button>
+            </div>
+          </div>
+
           <div class="custom-dropdown" id="sort-dropdown">
             <div class="dropdown-header">
               <i class="ph ph-sort-descending"></i>
@@ -200,6 +249,24 @@
           </div>
         </div>
       </div>
+
+      <!-- Ticker filter active banner (hidden by default) -->
+      <div id="ticker-filter-banner" class="ticker-filter-banner hidden">
+        <div class="ticker-company-info">
+          <div class="ticker-symbol-badge" id="ticker-badge">—</div>
+          <div class="ticker-company-details">
+            <span class="ticker-company-name" id="ticker-company-name">—</span>
+            <span class="ticker-company-meta" id="ticker-company-meta">—</span>
+          </div>
+        </div>
+        <div class="ticker-filter-actions">
+          <span class="ticker-match-count" id="ticker-match-count">—</span>
+          <button id="ticker-clear-btn" class="ticker-clear-btn" title="Clear ticker filter">
+            <i class="ph ph-x"></i> Clear
+          </button>
+        </div>
+      </div>
+
       <div class="table-wrapper custom-scrollbar">
         <table id="narratives-table">
           <thead>
@@ -209,6 +276,7 @@
               <th class="num-col">Surprise</th>
               <th class="num-col">Impact</th>
               <th class="num-col">Risk</th>
+              <th class="num-col ticker-col hidden">Similarity</th>
               <th class="num-col">Events</th>
               <th>Trend</th>
               <th class="right-align">Updated</th>

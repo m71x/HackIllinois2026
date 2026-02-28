@@ -1107,3 +1107,996 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 });
+
+// ============================================================
+// SECTION: Ticker Search — Filter narratives by stock ticker
+// ============================================================
+
+let tickerFilterActive = false;
+let tickerFilterData = null;   // { ticker, company_name, sector, industry, narratives }
+
+// Mock ticker → narrative mapping for offline mode
+const MOCK_TICKER_NARRATIVES = {
+  AAPL: { company_name: "Apple Inc.", sector: "Technology", industry: "Consumer Electronics", ids: ["3", "4"] },
+  NVDA: { company_name: "NVIDIA Corp.", sector: "Technology", industry: "Semiconductors", ids: ["3", "4"] },
+  MSFT: { company_name: "Microsoft Corp.", sector: "Technology", industry: "Software", ids: ["4", "3"] },
+  TSLA: { company_name: "Tesla Inc.", sector: "Consumer Cyclical", industry: "Auto Manufacturers", ids: ["1", "3"] },
+  META: { company_name: "Meta Platforms", sector: "Technology", industry: "Internet Content", ids: ["4"] },
+  GOOGL: { company_name: "Alphabet Inc.", sector: "Technology", industry: "Internet Content", ids: ["4", "3"] },
+  AMZN: { company_name: "Amazon.com Inc.", sector: "Consumer Cyclical", industry: "Internet Retail", ids: ["4", "3"] },
+  JPM:  { company_name: "JPMorgan Chase", sector: "Financial Services", industry: "Banks — Diversified", ids: ["2", "5"] },
+  BAC:  { company_name: "Bank of America", sector: "Financial Services", industry: "Banks — Diversified", ids: ["2", "5"] },
+  GS:   { company_name: "Goldman Sachs", sector: "Financial Services", industry: "Capital Markets", ids: ["2", "5"] },
+  XOM:  { company_name: "Exxon Mobil", sector: "Energy", industry: "Oil & Gas Integrated", ids: ["1"] },
+  CVX:  { company_name: "Chevron Corp.", sector: "Energy", industry: "Oil & Gas Integrated", ids: ["1"] },
+  OXY:  { company_name: "Occidental Petroleum", sector: "Energy", industry: "Oil & Gas E&P", ids: ["1"] },
+  JNJ:  { company_name: "Johnson & Johnson", sector: "Healthcare", industry: "Drug Manufacturers", ids: ["5"] },
+  PFE:  { company_name: "Pfizer Inc.", sector: "Healthcare", industry: "Drug Manufacturers", ids: ["5"] },
+  BA:   { company_name: "Boeing Co.", sector: "Industrials", industry: "Aerospace & Defense", ids: ["3", "1"] },
+};
+
+async function searchTicker() {
+  const input = document.getElementById("ticker-input");
+  const symbol = input.value.trim().toUpperCase();
+  if (!symbol) return;
+
+  const btn = document.getElementById("ticker-search-btn");
+  btn.classList.add("loading");
+  btn.disabled = true;
+
+  try {
+    let result;
+
+    if (isMockMode) {
+      // Mock mode: simulate a ticker search
+      const mock = MOCK_TICKER_NARRATIVES[symbol];
+      if (!mock) {
+        showTickerError(`No data found for ticker '${symbol}'`);
+        return;
+      }
+      // Build mock narratives with similarity scores
+      const matchedNarratives = mock.ids.map((id, i) => {
+        const n = MOCK_DATA.narratives.find(n => n.id === id);
+        if (!n) return null;
+        return {
+          id: n.id, name: n.name, description: n.description,
+          distance: 0.15 + i * 0.08,
+          similarity: 0.92 - i * 0.04,
+          model_risk: n.model_risk,
+          current_surprise: n.current_surprise,
+          current_impact: n.current_impact,
+          event_count: n.event_count,
+          is_active: true,
+        };
+      }).filter(Boolean);
+
+      result = {
+        ticker: symbol,
+        company_name: mock.company_name,
+        sector: mock.sector,
+        industry: mock.industry,
+        narratives: matchedNarratives,
+      };
+    } else {
+      // Live mode: call the backend
+      const res = await fetch(`${API}/tickers/${encodeURIComponent(symbol)}?n_results=10`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showTickerError(err.detail || `Ticker '${symbol}' not found`);
+        return;
+      }
+      result = await res.json();
+    }
+
+    // Activate filter
+    tickerFilterActive = true;
+    tickerFilterData = result;
+    renderTickerFilter(result);
+
+  } catch (e) {
+    console.error("Ticker search failed:", e);
+    showTickerError("Search failed — check your connection");
+  } finally {
+    btn.classList.remove("loading");
+    btn.disabled = false;
+  }
+}
+
+function renderTickerFilter(data) {
+  // Show the banner
+  const banner = document.getElementById("ticker-filter-banner");
+  banner.classList.remove("hidden");
+
+  document.getElementById("ticker-badge").textContent = data.ticker;
+  document.getElementById("ticker-company-name").textContent = data.company_name;
+  document.getElementById("ticker-company-meta").textContent =
+    `${data.sector || "—"}  ·  ${data.industry || "—"}`;
+  document.getElementById("ticker-match-count").textContent =
+    `${data.narratives.length} narrative${data.narratives.length !== 1 ? "s" : ""} matched`;
+
+  // Remove any previous error banner
+  const oldErr = document.querySelector(".ticker-error-banner");
+  if (oldErr) oldErr.remove();
+
+  // Show similarity column
+  document.querySelectorAll(".ticker-col").forEach(el => el.classList.remove("hidden"));
+
+  // Render the filtered narrative table
+  renderTickerNarratives(data.narratives);
+}
+
+function renderTickerNarratives(narratives) {
+  const tbody = document.getElementById("narratives-tbody");
+  const emptyEl = document.getElementById("narratives-empty");
+
+  if (narratives.length === 0) {
+    emptyEl.querySelector("p").textContent = "No matching narratives for this ticker";
+    emptyEl.classList.remove("hidden");
+    tbody.innerHTML = "";
+    return;
+  }
+
+  emptyEl.classList.add("hidden");
+
+  // Sort by similarity descending
+  const sorted = [...narratives].sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0));
+
+  tbody.innerHTML = sorted.map(n => {
+    const simPct = ((n.similarity ?? 0) * 100).toFixed(0);
+    const simColor = n.similarity >= 0.7 ? "var(--accent-cyan)"
+                   : n.similarity >= 0.4 ? "var(--risk-medium)"
+                   : "var(--text-muted)";
+
+    return `
+    <tr data-id="${n.id}">
+      <td><strong>${escapeHtml(n.name)}</strong></td>
+      <td class="desc" title="${escapeHtml(n.description)}">${escapeHtml(n.description)}</td>
+      <td class="num-col" style="color:${riskColor(n.current_surprise)}">${(n.current_surprise ?? 0).toFixed(2)}</td>
+      <td class="num-col" style="color:${riskColor(n.current_impact)}">${(n.current_impact ?? 0).toFixed(2)}</td>
+      <td class="num-col" style="color:${riskColor(n.model_risk)};font-weight:700">${(n.model_risk ?? 0).toFixed(2)}</td>
+      <td class="num-col ticker-col">
+        <div class="similarity-bar-cell">
+          <div class="similarity-bar"><div class="similarity-bar-fill" style="width:${simPct}%; background:${simColor}"></div></div>
+          <span class="similarity-pct" style="color:${simColor}">${simPct}%</span>
+        </div>
+      </td>
+      <td class="num-col">${n.event_count ?? 0}</td>
+      <td style="text-align:center">${trendIcon(n.surprise_trend)}</td>
+      <td class="right-align data-number text-text-muted">${n.last_updated ? timeAgo(n.last_updated) : "—"}</td>
+    </tr>
+    `;
+  }).join("");
+
+  tbody.querySelectorAll("tr").forEach(tr => {
+    tr.addEventListener("click", () => openNarrativeModal(tr.dataset.id));
+  });
+}
+
+function showTickerError(msg) {
+  // Remove previous error
+  const old = document.querySelector(".ticker-error-banner");
+  if (old) old.remove();
+
+  // Hide filter banner if visible
+  document.getElementById("ticker-filter-banner").classList.add("hidden");
+
+  // Insert error banner
+  const banner = document.createElement("div");
+  banner.className = "ticker-error-banner";
+  banner.innerHTML = `<i class="ph-bold ph-warning-circle"></i> ${escapeHtml(msg)}`;
+
+  const tableWrapper = document.querySelector("#narratives-panel .table-wrapper");
+  tableWrapper.parentNode.insertBefore(banner, tableWrapper);
+
+  // Auto-dismiss after 4 seconds
+  setTimeout(() => { if (banner.parentNode) banner.remove(); }, 4000);
+}
+
+function clearTickerFilter() {
+  tickerFilterActive = false;
+  tickerFilterData = null;
+
+  // Hide banner
+  document.getElementById("ticker-filter-banner").classList.add("hidden");
+
+  // Hide similarity column
+  document.querySelectorAll(".ticker-col").forEach(el => el.classList.add("hidden"));
+
+  // Clear input
+  document.getElementById("ticker-input").value = "";
+
+  // Remove any error banner
+  const err = document.querySelector(".ticker-error-banner");
+  if (err) err.remove();
+
+  // Restore the empty state text
+  const emptyP = document.getElementById("narratives-empty")?.querySelector("p");
+  if (emptyP) emptyP.textContent = "Awaiting Narrative Data...";
+
+  // Refresh to show all narratives again
+  refreshNarratives();
+}
+
+// Wire up ticker search events
+document.addEventListener("DOMContentLoaded", () => {
+  const tickerInput = document.getElementById("ticker-input");
+  const tickerBtn = document.getElementById("ticker-search-btn");
+  const tickerClearBtn = document.getElementById("ticker-clear-btn");
+
+  tickerBtn.addEventListener("click", searchTicker);
+
+  tickerInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") searchTicker();
+    if (e.key === "Escape" && tickerFilterActive) clearTickerFilter();
+  });
+
+  tickerClearBtn.addEventListener("click", clearTickerFilter);
+});
+
+// Override refreshNarratives to skip overwriting when ticker filter is active
+const _tickerOriginalRefreshNarratives = refreshNarratives;
+refreshNarratives = async function () {
+  if (tickerFilterActive && tickerFilterData) {
+    // Keep showing ticker-filtered results; don't overwrite with all narratives
+    renderTickerNarratives(tickerFilterData.narratives);
+    return;
+  }
+  // Normal path
+  await _tickerOriginalRefreshNarratives();
+
+  // After normal render, make sure similarity column is hidden
+  document.querySelectorAll(".ticker-col").forEach(el => el.classList.add("hidden"));
+};
+
+// ============================================================
+// SECTION: Multi-Visualization Engine
+// Six chart types: Line, Neon Bars, Area Bands, Scatter, Radar, Ring
+// ============================================================
+
+let currentChartType = "line";
+let _cachedNarratives = [];   // stored for radar + ring charts
+
+// Neon palette for multi-series charts
+const NEON_PALETTE = [
+  { line: "#00f0ff", fill: "rgba(0, 240, 255, 0.18)",  glow: "rgba(0, 240, 255, 0.5)" },
+  { line: "#f43f5e", fill: "rgba(244, 63, 94, 0.15)",  glow: "rgba(244, 63, 94, 0.5)" },
+  { line: "#8b5cf6", fill: "rgba(139, 92, 246, 0.15)", glow: "rgba(139, 92, 246, 0.5)" },
+  { line: "#f59e0b", fill: "rgba(245, 158, 11, 0.15)", glow: "rgba(245, 158, 11, 0.5)" },
+  { line: "#10b981", fill: "rgba(16, 185, 129, 0.15)", glow: "rgba(16, 185, 129, 0.5)" },
+  { line: "#ec4899", fill: "rgba(236, 72, 153, 0.15)", glow: "rgba(236, 72, 153, 0.5)" },
+];
+
+// Cache narratives whenever they refresh (for radar/ring)
+const _vizOrigRefresh = refreshNarratives;
+refreshNarratives = async function () {
+  await _vizOrigRefresh();
+  try {
+    const d = await fetchJSON("/narratives?active_only=true&sort_by=risk&limit=20");
+    _cachedNarratives = d.narratives || (isMockMode ? MOCK_DATA.narratives : []);
+  } catch (e) { /* keep old cache */ }
+};
+
+// ── Shared chart helpers ─────────────────────────────────────────────────────
+
+function _riskBarColor(v, alpha) {
+  if (v < 0.33) return `rgba(16, 185, 129, ${alpha})`;
+  if (v < 0.66) return `rgba(245, 158, 11, ${alpha})`;
+  return `rgba(239, 68, 68, ${alpha})`;
+}
+
+function _riskBarBorder(v) {
+  if (v < 0.33) return "#10b981";
+  if (v < 0.66) return "#f59e0b";
+  return "#ef4444";
+}
+
+function _baseChartOpts(yMin, yMax) {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    scales: {
+      y: {
+        min: yMin, max: yMax,
+        grid: { color: "rgba(255,255,255,0.05)" },
+        ticks: { color: "#8b949e", font: { family: "'JetBrains Mono'" } }
+      },
+      x: {
+        grid: { display: false },
+        ticks: { color: "#8b949e", maxTicksLimit: 8, font: { family: "'JetBrains Mono'" } }
+      }
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: "rgba(16,22,38,0.92)",
+        titleFont: { family: "'Outfit'" },
+        bodyFont: { family: "'JetBrains Mono'" },
+        borderColor: "rgba(0,240,255,0.3)",
+        borderWidth: 1,
+      }
+    }
+  };
+}
+
+function _destroyRiskChart() {
+  if (riskChart) { riskChart.destroy(); riskChart = null; }
+  // Remove any overlays (radar legend, ring center)
+  document.querySelectorAll(".radar-legend-overlay, .ring-center-label").forEach(el => el.remove());
+}
+
+// ── RENDERER: Neon Bars ──────────────────────────────────────────────────────
+
+function _renderBarsChart(ctx, labels, values) {
+  _destroyRiskChart();
+
+  const barColors = values.map(v => _riskBarColor(v, 0.75));
+  const barBorders = values.map(v => _riskBarBorder(v));
+  const barHover = values.map(v => _riskBarColor(v, 1.0));
+
+  riskChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Risk Index",
+        data: values,
+        backgroundColor: barColors,
+        borderColor: barBorders,
+        borderWidth: 1.5,
+        borderRadius: { topLeft: 4, topRight: 4 },
+        hoverBackgroundColor: barHover,
+        borderSkipped: "bottom",
+      }]
+    },
+    options: {
+      ..._baseChartOpts(0, 1),
+      plugins: {
+        ..._baseChartOpts(0, 1).plugins,
+        tooltip: {
+          ..._baseChartOpts(0, 1).plugins.tooltip,
+          callbacks: {
+            label: (item) => `Risk: ${item.parsed.y.toFixed(3)}`,
+            labelColor: (item) => ({
+              borderColor: _riskBarBorder(item.parsed.y),
+              backgroundColor: _riskBarColor(item.parsed.y, 0.8),
+              borderWidth: 2, borderRadius: 2,
+            }),
+          }
+        }
+      },
+      animation: {
+        duration: 800,
+        easing: "easeOutQuart",
+      }
+    },
+    plugins: [{
+      id: "neonGlow",
+      afterDatasetsDraw(chart) {
+        const meta = chart.getDatasetMeta(0);
+        const ctx2 = chart.ctx;
+        meta.data.forEach((bar, i) => {
+          const v = values[i];
+          if (v >= 0.55) {
+            ctx2.save();
+            ctx2.shadowColor = _riskBarBorder(v);
+            ctx2.shadowBlur = v >= 0.75 ? 18 : 10;
+            ctx2.fillStyle = _riskBarColor(v, 0.3);
+            const { x, y, width, height, base } = bar.getProps(["x", "y", "width", "height", "base"]);
+            ctx2.fillRect(x - width / 2, y, width, base - y);
+            ctx2.restore();
+          }
+        });
+      }
+    }]
+  });
+}
+
+// ── RENDERER: Area Bands ─────────────────────────────────────────────────────
+
+function _renderBandsChart(ctx, labels, values) {
+  _destroyRiskChart();
+
+  const highBand = values.map(v => Math.max(0, v - 0.66));
+  const medBand  = values.map(v => Math.max(0, Math.min(v, 0.66) - 0.33));
+  const lowBand  = values.map(v => Math.min(v, 0.33));
+
+  riskChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Critical",
+          data: highBand,
+          backgroundColor: "rgba(239, 68, 68, 0.35)",
+          borderColor: "rgba(239, 68, 68, 0.6)",
+          borderWidth: 0,
+          fill: true,
+          pointRadius: 0,
+          tension: 0.4,
+          order: 3,
+          stack: "bands",
+        },
+        {
+          label: "Elevated",
+          data: medBand,
+          backgroundColor: "rgba(245, 158, 11, 0.3)",
+          borderColor: "rgba(245, 158, 11, 0.5)",
+          borderWidth: 0,
+          fill: true,
+          pointRadius: 0,
+          tension: 0.4,
+          order: 2,
+          stack: "bands",
+        },
+        {
+          label: "Stable",
+          data: lowBand,
+          backgroundColor: "rgba(16, 185, 129, 0.25)",
+          borderColor: "rgba(16, 185, 129, 0.4)",
+          borderWidth: 0,
+          fill: true,
+          pointRadius: 0,
+          tension: 0.4,
+          order: 1,
+          stack: "bands",
+        },
+        {
+          label: "Risk Index",
+          data: values,
+          borderColor: "#ffffff",
+          borderWidth: 2.5,
+          pointRadius: 0,
+          pointHoverRadius: 5,
+          pointBackgroundColor: "#fff",
+          fill: false,
+          tension: 0.4,
+          order: 4,
+        },
+      ]
+    },
+    options: {
+      ..._baseChartOpts(0, 1),
+      scales: {
+        ..._baseChartOpts(0, 1).scales,
+        y: {
+          ..._baseChartOpts(0, 1).scales.y,
+          stacked: true,
+        }
+      },
+      plugins: {
+        ..._baseChartOpts(0, 1).plugins,
+        legend: {
+          display: true,
+          position: "top",
+          align: "end",
+          labels: {
+            usePointStyle: true,
+            pointStyle: "rectRounded",
+            padding: 12,
+            font: { family: "'JetBrains Mono'", size: 10 },
+            color: "#8b949e",
+            filter: (item) => item.text !== "Risk Index",
+          }
+        },
+        tooltip: {
+          ..._baseChartOpts(0, 1).plugins.tooltip,
+          filter: (item) => item.dataset.label === "Risk Index",
+        }
+      },
+      animation: { duration: 600, easing: "easeOutCubic" },
+    },
+    plugins: [{
+      id: "bandGlow",
+      afterDraw(chart) {
+        const ctx2 = chart.ctx;
+        const area = chart.chartArea;
+        ctx2.save();
+        // Horizontal risk zone labels on right edge
+        const zones = [
+          { y: area.bottom - (area.height * 0.165), text: "LOW", color: "rgba(16,185,129,0.4)" },
+          { y: area.bottom - (area.height * 0.495), text: "MED", color: "rgba(245,158,11,0.35)" },
+          { y: area.bottom - (area.height * 0.83), text: "HIGH", color: "rgba(239,68,68,0.35)" },
+        ];
+        ctx2.font = "600 9px 'JetBrains Mono'";
+        ctx2.textAlign = "right";
+        zones.forEach(z => {
+          ctx2.fillStyle = z.color;
+          ctx2.fillText(z.text, area.right - 6, z.y);
+        });
+        ctx2.restore();
+      }
+    }]
+  });
+}
+
+// ── RENDERER: Scatter Pulse ──────────────────────────────────────────────────
+
+function _renderScatterChart(ctx, labels, values, history) {
+  _destroyRiskChart();
+
+  const scatterData = values.map((v, i) => ({
+    x: i,
+    y: v,
+    r: 3 + v * 10,
+  }));
+
+  const bgColors = values.map(v => _riskBarColor(v, 0.7));
+  const borderColors = values.map(v => _riskBarBorder(v));
+
+  riskChart = new Chart(ctx, {
+    type: "bubble",
+    data: {
+      datasets: [{
+        label: "Risk Pulse",
+        data: scatterData,
+        backgroundColor: bgColors,
+        borderColor: borderColors,
+        borderWidth: 1.5,
+        hoverRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          min: 0, max: 1,
+          grid: { color: "rgba(255,255,255,0.05)" },
+          ticks: { color: "#8b949e", font: { family: "'JetBrains Mono'" } },
+          title: { display: true, text: "Risk", color: "#8b949e", font: { family: "'JetBrains Mono'", size: 10 } }
+        },
+        x: {
+          min: -1, max: values.length,
+          grid: { color: "rgba(255,255,255,0.03)" },
+          ticks: {
+            color: "#8b949e",
+            font: { family: "'JetBrains Mono'" },
+            maxTicksLimit: 8,
+            callback: (val) => labels[Math.round(val)] || "",
+          },
+          title: { display: false }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "rgba(16,22,38,0.92)",
+          titleFont: { family: "'Outfit'" },
+          bodyFont: { family: "'JetBrains Mono'" },
+          borderColor: "rgba(0,240,255,0.3)",
+          borderWidth: 1,
+          callbacks: {
+            title: (items) => labels[items[0].parsed.x] || "",
+            label: (item) => `Risk: ${item.parsed.y.toFixed(3)}`,
+          }
+        }
+      },
+      animation: { duration: 900, easing: "easeOutElastic" },
+    },
+    plugins: [{
+      id: "scatterField",
+      beforeDatasetsDraw(chart) {
+        const ctx2 = chart.ctx;
+        const area = chart.chartArea;
+        // Draw thin connecting line through points
+        const meta = chart.getDatasetMeta(0);
+        if (meta.data.length < 2) return;
+        ctx2.save();
+        ctx2.beginPath();
+        ctx2.strokeStyle = "rgba(0, 240, 255, 0.15)";
+        ctx2.lineWidth = 1;
+        ctx2.setLineDash([3, 4]);
+        meta.data.forEach((pt, i) => {
+          if (i === 0) ctx2.moveTo(pt.x, pt.y);
+          else ctx2.lineTo(pt.x, pt.y);
+        });
+        ctx2.stroke();
+        ctx2.restore();
+      },
+      afterDatasetsDraw(chart) {
+        // Pulse glow on the latest (rightmost) point
+        const meta = chart.getDatasetMeta(0);
+        if (meta.data.length === 0) return;
+        const last = meta.data[meta.data.length - 1];
+        const v = values[values.length - 1];
+        const ctx2 = chart.ctx;
+        ctx2.save();
+        const t = (Date.now() % 2000) / 2000;
+        const pulse = 0.4 + 0.6 * Math.abs(Math.sin(t * Math.PI));
+        ctx2.globalAlpha = pulse * 0.5;
+        ctx2.beginPath();
+        ctx2.arc(last.x, last.y, 14 + v * 12, 0, Math.PI * 2);
+        ctx2.fillStyle = _riskBarBorder(v);
+        ctx2.fill();
+        ctx2.restore();
+      }
+    }]
+  });
+}
+
+// ── RENDERER: Radar ──────────────────────────────────────────────────────────
+
+function _renderRadarChart(ctx) {
+  _destroyRiskChart();
+
+  const narrs = (_cachedNarratives.length ? _cachedNarratives : MOCK_DATA.narratives)
+    .slice(0, 6);
+
+  if (narrs.length === 0) {
+    ctx.font = "14px 'Outfit'";
+    ctx.fillStyle = "#8b949e";
+    ctx.textAlign = "center";
+    ctx.fillText("No narrative data available", ctx.canvas.width / 2, ctx.canvas.height / 2);
+    return;
+  }
+
+  const radarLabels = ["Surprise", "Impact", "Model Risk", "Event Density", "Recency"];
+
+  const maxEvents = Math.max(...narrs.map(n => n.event_count || 1));
+  const now = Date.now() / 1000;
+
+  const datasets = narrs.map((n, i) => {
+    const c = NEON_PALETTE[i % NEON_PALETTE.length];
+    const recency = Math.max(0, 1 - ((now - (n.last_updated || now)) / 86400));
+    return {
+      label: n.name,
+      data: [
+        n.current_surprise ?? 0,
+        n.current_impact ?? 0,
+        n.model_risk ?? 0,
+        (n.event_count || 0) / maxEvents,
+        recency,
+      ],
+      borderColor: c.line,
+      backgroundColor: c.fill,
+      borderWidth: 2,
+      pointBackgroundColor: c.line,
+      pointBorderColor: "#050811",
+      pointBorderWidth: 1,
+      pointRadius: 4,
+      pointHoverRadius: 7,
+    };
+  });
+
+  riskChart = new Chart(ctx, {
+    type: "radar",
+    data: { labels: radarLabels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        r: {
+          min: 0, max: 1,
+          beginAtZero: true,
+          grid: { color: "rgba(255,255,255,0.06)", circular: true },
+          angleLines: { color: "rgba(255,255,255,0.08)" },
+          pointLabels: {
+            color: "#8b949e",
+            font: { family: "'JetBrains Mono'", size: 10, weight: "600" },
+          },
+          ticks: {
+            color: "rgba(255,255,255,0.2)",
+            backdropColor: "transparent",
+            stepSize: 0.25,
+            font: { family: "'JetBrains Mono'", size: 8 },
+          },
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "rgba(16,22,38,0.94)",
+          titleFont: { family: "'Outfit'", size: 13 },
+          bodyFont: { family: "'JetBrains Mono'", size: 11 },
+          borderColor: "rgba(0,240,255,0.3)",
+          borderWidth: 1,
+          callbacks: {
+            title: (items) => items[0]?.dataset.label || "",
+          }
+        }
+      },
+      animation: { duration: 700, easing: "easeOutQuart" },
+    },
+    plugins: [{
+      id: "radarGlow",
+      afterDatasetsDraw(chart) {
+        const ctx2 = chart.ctx;
+        chart.data.datasets.forEach((ds, i) => {
+          const meta = chart.getDatasetMeta(i);
+          if (!meta.data.length) return;
+          ctx2.save();
+          ctx2.shadowColor = ds.borderColor;
+          ctx2.shadowBlur = 8;
+          ctx2.beginPath();
+          meta.data.forEach((pt, j) => {
+            if (j === 0) ctx2.moveTo(pt.x, pt.y);
+            else ctx2.lineTo(pt.x, pt.y);
+          });
+          ctx2.closePath();
+          ctx2.strokeStyle = ds.borderColor;
+          ctx2.lineWidth = 1;
+          ctx2.stroke();
+          ctx2.restore();
+        });
+      }
+    }]
+  });
+
+  // Insert floating legend
+  const wrapper = document.getElementById("main-chart-wrapper");
+  const legend = document.createElement("div");
+  legend.className = "radar-legend-overlay";
+  legend.innerHTML = narrs.map((n, i) => {
+    const c = NEON_PALETTE[i % NEON_PALETTE.length];
+    return `<div class="radar-legend-item">
+      <span class="radar-legend-dot" style="background:${c.line};color:${c.line}"></span>
+      ${escapeHtml(n.name)}
+    </div>`;
+  }).join("");
+  wrapper.appendChild(legend);
+}
+
+// ── RENDERER: Ring ───────────────────────────────────────────────────────────
+
+function _renderRingChart(ctx) {
+  _destroyRiskChart();
+
+  const narrs = (_cachedNarratives.length ? _cachedNarratives : MOCK_DATA.narratives)
+    .slice(0, 8);
+
+  if (narrs.length === 0) return;
+
+  const riskValues = narrs.map(n => n.model_risk ?? 0);
+  const total = riskValues.reduce((a, b) => a + b, 0) || 1;
+  const maxRisk = Math.max(...riskValues);
+  const colors = narrs.map((_, i) => NEON_PALETTE[i % NEON_PALETTE.length].line);
+  const hoverColors = narrs.map((_, i) => NEON_PALETTE[i % NEON_PALETTE.length].glow);
+
+  riskChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: narrs.map(n => n.name),
+      datasets: [{
+        data: riskValues,
+        backgroundColor: colors.map(c => c + "cc"),
+        borderColor: colors,
+        borderWidth: 2,
+        hoverBackgroundColor: hoverColors,
+        hoverBorderWidth: 3,
+        spacing: 3,
+        borderRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "65%",
+      plugins: {
+        legend: {
+          display: true,
+          position: "right",
+          labels: {
+            usePointStyle: true,
+            pointStyle: "circle",
+            padding: 10,
+            font: { family: "'JetBrains Mono'", size: 9.5 },
+            color: "#8b949e",
+            generateLabels: (chart) => {
+              const data = chart.data;
+              return data.labels.map((label, i) => ({
+                text: `${label.length > 18 ? label.slice(0, 18) + "..." : label}  ${((data.datasets[0].data[i] / total) * 100).toFixed(0)}%`,
+                fillStyle: data.datasets[0].backgroundColor[i],
+                strokeStyle: data.datasets[0].borderColor[i],
+                lineWidth: 1,
+                hidden: false,
+                index: i,
+                pointStyle: "circle",
+              }));
+            }
+          },
+        },
+        tooltip: {
+          backgroundColor: "rgba(16,22,38,0.94)",
+          titleFont: { family: "'Outfit'", size: 13 },
+          bodyFont: { family: "'JetBrains Mono'", size: 11 },
+          borderColor: "rgba(0,240,255,0.3)",
+          borderWidth: 1,
+          callbacks: {
+            label: (item) => {
+              const v = item.parsed;
+              const pct = ((v / total) * 100).toFixed(1);
+              return ` Risk: ${v.toFixed(2)}  (${pct}%)`;
+            }
+          }
+        }
+      },
+      animation: {
+        animateRotate: true,
+        duration: 900,
+        easing: "easeOutQuart",
+      }
+    },
+    plugins: [{
+      id: "ringGlow",
+      afterDraw(chart) {
+        const ctx2 = chart.ctx;
+        const meta = chart.getDatasetMeta(0);
+        ctx2.save();
+        meta.data.forEach((arc, i) => {
+          const color = chart.data.datasets[0].borderColor[i];
+          ctx2.shadowColor = color;
+          ctx2.shadowBlur = 12;
+          ctx2.beginPath();
+          ctx2.arc(arc.x, arc.y, arc.outerRadius, arc.startAngle, arc.endAngle);
+          ctx2.arc(arc.x, arc.y, arc.innerRadius, arc.endAngle, arc.startAngle, true);
+          ctx2.closePath();
+          ctx2.strokeStyle = color;
+          ctx2.lineWidth = 0.5;
+          ctx2.stroke();
+        });
+        ctx2.restore();
+      }
+    }]
+  });
+
+  // Center label
+  const wrapper = document.getElementById("main-chart-wrapper");
+  const center = document.createElement("div");
+  center.className = "ring-center-label";
+  center.innerHTML = `
+    <div class="ring-center-value" style="color:${riskColor(maxRisk)}">${maxRisk.toFixed(2)}</div>
+    <div class="ring-center-text">Peak Risk</div>
+  `;
+  wrapper.appendChild(center);
+}
+
+// ── CHART TYPE SWITCHING LOGIC ───────────────────────────────────────────────
+
+function switchChartType(newType) {
+  if (newType === currentChartType) return;
+
+  // Destroy the old chart and clean up overlays before switching
+  _destroyRiskChart();
+
+  currentChartType = newType;
+
+  // Update dropdown UI
+  document.querySelectorAll(".chart-type-item").forEach(el => {
+    el.classList.toggle("selected", el.dataset.type === newType);
+  });
+
+  // Update toggle button
+  const iconMap = {
+    line: "ph-chart-line", bars: "ph-chart-bar", bands: "ph-stack",
+    scatter: "ph-chart-scatter", radar: "ph-hexagon", ring: "ph-circle-notch"
+  };
+  const labelMap = {
+    line: "Line", bars: "Neon Bars", bands: "Area Bands",
+    scatter: "Scatter", radar: "Radar", ring: "Ring"
+  };
+  document.getElementById("chart-type-icon").className = `ph ${iconMap[newType]}`;
+  document.getElementById("chart-type-label").textContent = labelMap[newType];
+
+  // Show/hide time controls (radar & ring don't use time series)
+  const controls = document.querySelector(".chart-controls");
+  if (newType === "radar" || newType === "ring") {
+    controls.classList.add("no-time-controls");
+  } else {
+    controls.classList.remove("no-time-controls");
+  }
+
+  // Update insights visibility
+  const insights = document.getElementById("chart-insights");
+  if (newType === "radar" || newType === "ring") {
+    insights.style.display = "none";
+  } else {
+    insights.style.display = "";
+  }
+
+  // Force re-render
+  updateRiskChart();
+}
+
+// ── Override updateRiskChart to dispatch by type ─────────────────────────────
+
+const _vizOrigUpdateRiskChart = updateRiskChart;
+updateRiskChart = async function () {
+  // For line type, delegate to original chain (which handles line + momentum)
+  if (currentChartType === "line") {
+    await _vizOrigUpdateRiskChart();
+    return;
+  }
+
+  // For other types, generate the same mock/live data but render differently
+  let windowSize = 24;
+  if (currentChartRange === "1m") windowSize = 24 * 30;
+  if (currentChartRange === "1y") windowSize = 24 * 365;
+  if (currentChartRange === "ytd") windowSize = 24 * 90;
+
+  const history = Array.from({ length: 24 }, (_, i) => {
+    let base = 0.5;
+    if (currentChartRange === "1m") base = 0.4;
+    if (currentChartRange === "1y") base = 0.35;
+    if (currentChartRange === "ytd") base = 0.3;
+    const pointRisk = Math.max(0, Math.min(1, base + Math.random() * 0.4 + (chartOffset * 0.05)));
+    return {
+      timestamp: Date.now() / 1000 - (24 - i) * (windowSize / 24) * 3600 - (chartOffset * windowSize * 3600),
+      model_risk_index: pointRisk
+    };
+  });
+
+  const labels = history.map(p => {
+    const d = new Date(p.timestamp * 1000);
+    if (currentChartRange === "1d") return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  });
+
+  const values = history.map(p => p.model_risk_index);
+
+  const ctx = document.getElementById("risk-chart").getContext("2d");
+
+  // Update insights (shared across time-series types)
+  if (currentChartType !== "radar" && currentChartType !== "ring") {
+    const avgValue = values.reduce((a, b) => a + b, 0) / values.length;
+    let maxRiskPoint = history[0], minRiskPoint = history[0];
+    window.currentMaxIndex = 0;
+    window.currentMinIndex = 0;
+    history.forEach((p, i) => {
+      if (p.model_risk_index > maxRiskPoint.model_risk_index) { maxRiskPoint = p; window.currentMaxIndex = i; }
+      if (p.model_risk_index < minRiskPoint.model_risk_index) { minRiskPoint = p; window.currentMinIndex = i; }
+    });
+    const fmtTime = (ts) => {
+      const d = new Date(ts * 1000);
+      if (currentChartRange === "1d") return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    };
+    document.getElementById("insight-max-val").textContent = maxRiskPoint.model_risk_index.toFixed(2);
+    document.getElementById("insight-max-time").textContent = fmtTime(maxRiskPoint.timestamp);
+    document.getElementById("insight-min-val").textContent = minRiskPoint.model_risk_index.toFixed(2);
+    document.getElementById("insight-min-time").textContent = fmtTime(minRiskPoint.timestamp);
+    document.getElementById("insight-avg-val").textContent = avgValue.toFixed(2);
+  }
+
+  // Dispatch to correct renderer
+  switch (currentChartType) {
+    case "bars":    _renderBarsChart(ctx, labels, values); break;
+    case "bands":   _renderBandsChart(ctx, labels, values); break;
+    case "scatter":  _renderScatterChart(ctx, labels, values, history); break;
+    case "radar":   _renderRadarChart(ctx); break;
+    case "ring":    _renderRingChart(ctx); break;
+  }
+};
+
+// ── Wire up the dropdown UI ──────────────────────────────────────────────────
+
+document.addEventListener("DOMContentLoaded", () => {
+  const toggle = document.getElementById("chart-type-toggle");
+  const menu = document.getElementById("chart-type-menu");
+  const dropdown = document.getElementById("chart-type-dropdown");
+
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.classList.toggle("hidden");
+    dropdown.classList.toggle("open");
+  });
+
+  menu.querySelectorAll(".chart-type-item").forEach(item => {
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const type = item.dataset.type;
+      menu.classList.add("hidden");
+      dropdown.classList.remove("open");
+      switchChartType(type);
+    });
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", () => {
+    if (!menu.classList.contains("hidden")) {
+      menu.classList.add("hidden");
+      dropdown.classList.remove("open");
+    }
+  });
+});

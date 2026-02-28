@@ -107,6 +107,10 @@ class ScrapeParams:
         "https://feeds.bbci.co.uk/news/business/rss.xml",
         "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
         "https://feeds.reuters.com/reuters/topNews",
+        "https://www.cnbc.com/id/10000664/device/rss/rss.html", # CNBC Finance
+        "https://www.cnbc.com/id/10001147/device/rss/rss.html", # CNBC Business
+        "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",      # WSJ Business
+        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",        # WSJ Markets
     ])
 
 

@@ -78,10 +78,10 @@ echo ""
 echo "📰 Ingesting financial news stories..."
 
 # Try live RSS scrape first (real headlines, no API key needed)
-echo "   Scraping live RSS feeds (Reuters, BBC, NYT)..."
+echo "   Scraping live RSS feeds (Reuters, BBC, NYT, CNBC, WSJ)..."
 SCRAPE_RESULT=$(curl -s -X POST http://localhost:8000/api/ingest/scrape \
   -H "Content-Type: application/json" \
-  -d '{"lookback_minutes": 1440, "max_per_source": 15, "sources": ["rss"]}')
+  -d '{"lookback_minutes": 10080, "max_per_source": 100, "sources": ["rss"]}')
 
 FETCHED=$(echo "$SCRAPE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ingested', 0))" 2>/dev/null || echo "0")
 
