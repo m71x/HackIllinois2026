@@ -1280,57 +1280,47 @@ textarea {
   }
 }
 
-/* ── Navigation Tabs ── */
-.tabs-nav {
+/* ── Header Navigation Tabs ── */
+.header-tabs {
   display: flex;
-  gap: 1rem;
-  padding: 1rem 2.5rem 0;
-  max-width: 1800px;
-  margin: 0 auto;
+  align-items: center;
+  gap: 0;
+}
+
+.tab-divider {
+  color: rgba(255, 255, 255, 0.15);
+  font-size: 1.1rem;
+  font-weight: 300;
+  user-select: none;
 }
 
 .tab-btn {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--panel-border);
-  border-bottom: none;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: transparent;
+  border: none;
   color: var(--text-muted);
-  padding: 0.8rem 1.5rem;
+  padding: 0.4rem 1rem;
   font-family: var(--font-heading);
   font-weight: 500;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  transition: all 0.2s ease;
+  gap: 0.4rem;
+  transition: color 0.2s ease;
+  position: relative;
 }
 
 .tab-btn i {
-  font-size: 1.1rem;
+  font-size: 1rem;
 }
 
 .tab-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
   color: var(--text-primary);
 }
 
 .tab-btn.active {
-  background: var(--panel-bg);
   color: var(--accent-cyan);
-  border-color: var(--accent-cyan);
-  box-shadow: 0 -4px 15px rgba(0, 240, 255, 0.1);
-  position: relative;
-}
-
-.tab-btn.active::after {
-  content: "";
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--panel-bg);
+  text-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
 }
 
 .tab-pane {
