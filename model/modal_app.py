@@ -1,27 +1,32 @@
 """
-Modal deployment for LLM inference.
+Modal deployment for LLM inference and text embeddings.
 
 Deploy once with:
-    modal deploy backend/modal_app.py
+    modal deploy model/modal_app.py
 
-Then call from FastAPI via modal.Cls.lookup("model-risk-llm", "LLM").
-
-The deployed class exposes a single `.chat()` method that accepts OpenAI-style
-messages and returns a string response.
+Two classes are deployed:
+    LLM      — Llama 3.3 70B on A10G, called via modal.Cls.lookup("model-risk-llm", "LLM")
+    Embedder — all-MiniLM-L6-v2 on T4,  called via modal.Cls.lookup("model-risk-llm", "Embedder")
 """
 
 import modal
 
-MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct"
+LLM_MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct"
+EMBED_MODEL_NAME = "all-MiniLM-L6-v2"  # 384-dim, fast, no HF token needed
 APP_NAME = "model-risk-llm"
 
-image = (
+llm_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install("vllm==0.6.6", "huggingface_hub[hf_transfer]")
     .env({"HF_HUB_ENABLE_HF_TRANSFER": "1"})
 )
 
-app = modal.App(APP_NAME, image=image)
+embed_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install("sentence-transformers")
+)
+
+app = modal.App(APP_NAME)
 
 # HuggingFace secret needed to download gated Llama models.
 # Create it with: modal secret create huggingface-secret HF_TOKEN=your_token
@@ -30,6 +35,7 @@ hf_secret = modal.Secret.from_name("huggingface-secret")
 
 @app.cls(
     gpu="A10G",
+    image=llm_image,
     timeout=600,
     container_idle_timeout=300,
     secrets=[hf_secret],
@@ -65,7 +71,29 @@ class LLM:
         return outputs[0].outputs[0].text.strip()
 
 
-# --- Local entrypoint for quick testing ---
+@app.cls(
+    gpu="T4",                    # T4 is sufficient and cheaper for embedding
+    image=embed_image,
+    container_idle_timeout=300,
+)
+class Embedder:
+    @modal.enter()
+    def load_model(self):
+        from sentence_transformers import SentenceTransformer
+        self._model = SentenceTransformer(EMBED_MODEL_NAME)
+
+    @modal.method()
+    def embed(self, text: str) -> list[float]:
+        """Embed a single string. Returns a normalized 384-dim float list."""
+        return self._model.encode(text, normalize_embeddings=True).tolist()
+
+    @modal.method()
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Embed multiple strings in one forward pass."""
+        return self._model.encode(texts, normalize_embeddings=True).tolist()
+
+
+# --- Local entrypoints for quick testing ---
 @app.local_entrypoint()
 def main():
     llm = LLM()
@@ -73,4 +101,8 @@ def main():
         messages=[{"role": "user", "content": "What is the Federal Reserve?"}],
         max_tokens=128,
     )
-    print(response)
+    print("LLM:", response)
+
+    embedder = Embedder()
+    vec = embedder.embed.remote("energy supply shock")
+    print("Embedding dim:", len(vec), "| first 4 values:", vec[:4])

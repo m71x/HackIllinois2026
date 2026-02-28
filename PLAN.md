@@ -361,36 +361,65 @@ app = FastAPI(title="Real-World Model Risk Engine", lifespan=lifespan)
 
 ## 3. Embedding Layer
 
-### 3.1 Model Choice
-
-**File:** `backend/services/embedder.py`
+### 3.1 Model & Deployment
 
 Model: `all-MiniLM-L6-v2` from `sentence-transformers`
 - Output dimension: 384
-- Runs on CPU, no GPU required
-- ~80MB download, cached locally after first run
-- Throughput: ~500 embeddings/second on modern CPU
-- Loaded once at module import time (singleton pattern)
+- No HuggingFace token required (public model)
+- Runs on Modal T4 GPU (faster than CPU, cheaper than A10G)
 
-### 3.2 Full embedder.py
+The embedding model is deployed as the `Embedder` class inside `model/modal_app.py`, alongside the `LLM` class. Both share the same Modal app (`model-risk-llm`) but use separate container classes with separate GPU types.
+
+**Files:**
+- `model/modal_app.py` — `Embedder` class definition (model team owns this)
+- `backend/services/embedder.py` — thin client that calls Modal remotely (backend team owns this)
+
+### 3.2 Embedder class (in modal_app.py)
 
 ```python
-from sentence_transformers import SentenceTransformer
+embed_image = modal.Image.debian_slim().pip_install("sentence-transformers")
 
-_model = SentenceTransformer("all-MiniLM-L6-v2")
+@app.cls(gpu="T4", image=embed_image, container_idle_timeout=300)
+class Embedder:
+    @modal.enter()
+    def load_model(self):
+        from sentence_transformers import SentenceTransformer
+        self._model = SentenceTransformer("all-MiniLM-L6-v2")
 
+    @modal.method()
+    def embed(self, text: str) -> list[float]:
+        return self._model.encode(text, normalize_embeddings=True).tolist()
 
-def embed_text(text: str) -> list[float]:
-    """Embed a single text string. Returns normalized 384-dim vector."""
-    return _model.encode(text, normalize_embeddings=True).tolist()
-
-
-def embed_batch(texts: list[str]) -> list[list[float]]:
-    """Embed multiple texts in one forward pass. More efficient than looping."""
-    return _model.encode(texts, normalize_embeddings=True).tolist()
+    @modal.method()
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return self._model.encode(texts, normalize_embeddings=True).tolist()
 ```
 
-### 3.3 Embedding Strategy
+### 3.3 embedder.py — Backend Client
+
+```python
+# backend/services/embedder.py
+import modal
+from core.config import settings
+
+_embedder = None
+
+def _get_embedder():
+    global _embedder
+    if _embedder is None:
+        _embedder = modal.Cls.lookup(settings.modal_app_name, "Embedder")
+    return _embedder
+
+def embed_text(text: str) -> list[float]:
+    return _get_embedder()().embed.remote(text)
+
+def embed_batch(texts: list[str]) -> list[list[float]]:
+    return _get_embedder()().embed_batch.remote(texts)
+```
+
+The rest of the backend calls only `embed_text()` and `embed_batch()` — the Modal backend is transparent.
+
+### 3.4 Embedding Strategy
 
 Each narrative's stored embedding represents the **centroid** of all stories that have contributed to it. When a new story updates a narrative, the centroid is recomputed via online mean blending:
 
@@ -2048,8 +2077,8 @@ Keeps ChromaDB small, query-fast, and semantically stable. Individual stories ar
 ### D5: Online mean for centroid blending
 Equal weight for all historical stories regardless of time. The centroid should represent the full breadth of the narrative, not just recent stories. An EMA would drift toward recent events — acceptable tradeoff if desired.
 
-### D6: sentence-transformers locally, Modal for generation
-Embeddings are fast, free, and local (CPU, no API). LLM calls go to Modal only for tasks requiring language understanding (labeling, scoring, chat). Modal provides GPU-backed inference without managing infrastructure. Clean separation of concerns.
+### D6: Both embedding and LLM inference on Modal
+Both `Embedder` (T4 GPU) and `LLM` (A10G GPU) run on Modal, deployed from `model/modal_app.py`. The backend holds only thin client wrappers (`embedder.py`, `llm_client.py`) with no local model weights. This keeps the backend lightweight, gives the model team full ownership of inference infrastructure, and means GPU selection can be tuned independently per model class.
 
 ### D7: SSE not WebSockets
 Data flows strictly server → client for live updates. SSE is simpler, auto-reconnects, and works through proxies. WebSockets add unnecessary complexity for unidirectional push.
