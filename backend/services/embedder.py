@@ -4,8 +4,8 @@ Text embedding service — backed by the Modal-deployed Embedder class.
 The Modal app must be deployed before this will work:
     modal deploy model/modal_app.py
 
-Public interface is identical to the old local version so nothing else changes:
-    embed_text(text: str)          -> list[float]
+Public interface:
+    embed_text(text: str)          -> list[float]   # 384-dim L2-normalized
     embed_batch(texts: list[str])  -> list[list[float]]
 """
 
@@ -18,13 +18,26 @@ _embedder = None
 def _get_embedder():
     global _embedder
     if _embedder is None:
-        _embedder = modal.Cls.lookup(settings.modal_app_name, "Embedder")
+        try:
+            _embedder = modal.Cls.lookup(settings.modal_app_name, "Embedder")
+        except Exception:
+            _embedder = None
     return _embedder
 
 
 def embed_text(text: str) -> list[float]:
-    return _get_embedder()().embed.remote(text)
+    embedder = _get_embedder()
+    if embedder is None:
+        raise RuntimeError(
+            "Modal Embedder not available. Deploy with: modal deploy model/modal_app.py"
+        )
+    return embedder().embed.remote(text)
 
 
 def embed_batch(texts: list[str]) -> list[list[float]]:
-    return _get_embedder()().embed_batch.remote(texts)
+    embedder = _get_embedder()
+    if embedder is None:
+        raise RuntimeError(
+            "Modal Embedder not available. Deploy with: modal deploy model/modal_app.py"
+        )
+    return embedder().embed_batch.remote(texts)
