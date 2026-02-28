@@ -62,11 +62,13 @@ def list_narratives(
 @router.get("/graph")
 def get_narrative_graph():
     """
-    Project all narrative embeddings to 2D via PCA.
-    Returns nodes with x/y coords, metadata, and similarity edges for graph visualization.
+    Cluster all narrative embeddings via K-means++ (cosine), then project each
+    cluster centroid to 2D via PCA.  Returns one node per cluster and edges
+    between semantically related clusters.
     """
     try:
         import numpy as np
+        import math
     except ImportError:
         return {"nodes": [], "edges": [], "error": "numpy not available"}
 
@@ -85,67 +87,160 @@ def get_narrative_graph():
         return {"nodes": [], "edges": []}
 
     narr_list, emb_list = zip(*pairs)
-    X = np.array(emb_list, dtype=np.float32)  # (N, 384)
+    X = np.array(emb_list, dtype=np.float32)  # (N, 384), L2-normalized
     N = X.shape[0]
 
-    # ── PCA to 2D ────────────────────────────────────────────────────────────
-    if N == 1:
+    # ── Auto K selection ─────────────────────────────────────────────────────
+    # Targets roughly sqrt(N) clusters, bounded to [3, 12]
+    k = max(3, min(12, int(math.sqrt(N))))
+    if N <= k:
+        k = N
+
+    # ── K-means++ (cosine) ───────────────────────────────────────────────────
+    rng = np.random.default_rng(42)
+    # Seeding: spread initial centroids using k-means++ distance weighting
+    seed_idx = [int(rng.integers(N))]
+    for _ in range(k - 1):
+        dists = 1.0 - X @ X[seed_idx].T          # cosine distance to chosen seeds
+        min_dists = dists.min(axis=1).clip(0)
+        probs = min_dists / (min_dists.sum() + 1e-10)
+        seed_idx.append(int(rng.choice(N, p=probs)))
+
+    centroids = X[seed_idx].copy()
+    labels = np.zeros(N, dtype=int)
+
+    for _ in range(80):
+        sims = X @ centroids.T                    # (N, k) cosine similarity
+        new_labels = np.argmax(sims, axis=1)
+        if np.all(new_labels == labels):
+            break
+        labels = new_labels
+        for j in range(k):
+            mask = labels == j
+            if mask.any():
+                c = X[mask].mean(axis=0)
+                n = float(np.linalg.norm(c))
+                centroids[j] = c / n if n > 0 else c
+
+    # ── Build cluster metadata ────────────────────────────────────────────────
+    cluster_nodes_raw = []
+    for j in range(k):
+        member_mask = labels == j
+        if not member_mask.any():
+            continue
+        members = [narr_list[i] for i in range(N) if member_mask[i]]
+        member_embs = X[member_mask]
+        centroid = centroids[j]
+
+        # Representative narrative = the one whose embedding is closest to centroid
+        sims_to_centroid = member_embs @ centroid
+        rep_name = members[int(np.argmax(sims_to_centroid))].name
+
+        cluster_nodes_raw.append({
+            "_j": j,
+            "_centroid": centroid,
+            "id": f"cluster_{j}",
+            "label": rep_name,
+            "member_count": int(member_mask.sum()),
+            "total_events": int(sum(m.event_count for m in members)),
+            "model_risk": round(float(np.mean([m.model_risk or 0 for m in members])), 4),
+            "current_surprise": round(float(np.mean([m.current_surprise or 0 for m in members])), 4),
+            "current_impact": round(float(np.mean([m.current_impact or 0 for m in members])), 4),
+            "member_names": [m.name for m in members[:6]],
+        })
+
+    if not cluster_nodes_raw:
+        return {"nodes": [], "edges": []}
+
+    # ── PCA of cluster centroids → 2D ────────────────────────────────────────
+    C = np.array([cn["_centroid"] for cn in cluster_nodes_raw], dtype=np.float32)
+    NC = C.shape[0]
+
+    if NC == 1:
         x2d = np.zeros((1, 2), dtype=np.float32)
     else:
-        X_c = X - X.mean(axis=0)
+        C_c = C - C.mean(axis=0)
         try:
-            _, _, Vt = np.linalg.svd(X_c, full_matrices=False)
-            x2d = X_c @ Vt[:2].T  # project onto first 2 PCs → (N, 2)
+            _, _, Vt = np.linalg.svd(C_c, full_matrices=False)
+            x2d = C_c @ Vt[:2].T
         except Exception:
-            x2d = np.zeros((N, 2), dtype=np.float32)
+            x2d = np.zeros((NC, 2), dtype=np.float32)
 
-        # Normalize each axis to [-1, 1]
         for d in range(2):
             col = x2d[:, d]
             lo, hi = float(col.min()), float(col.max())
             if hi > lo:
                 x2d[:, d] = (col - lo) / (hi - lo) * 2.0 - 1.0
 
-    # ── Pairwise cosine similarity → edges ───────────────────────────────────
-    # X rows are L2-normalized (stored that way by the Modal embedder),
-    # so dot(a, b) == cosine similarity.
-    sim_matrix = (X @ X.T).astype(float)
-    np.fill_diagonal(sim_matrix, -1.0)   # exclude self-edges
+    # ── Inter-cluster edges ───────────────────────────────────────────────────
+    sim_matrix = (C @ C.T).astype(float)
+    np.fill_diagonal(sim_matrix, -1.0)
 
-    EDGE_THRESHOLD = 0.55       # only draw clearly related pairs
+    STRONG_THRESHOLD = 0.45   # above this → solid edge
     MAX_EDGES_PER_NODE = 3
 
     edge_set: set[tuple[int, int]] = set()
     edges = []
-    for i in range(N):
-        top_idxs = np.argsort(sim_matrix[i])[-MAX_EDGES_PER_NODE:][::-1]
-        for j in top_idxs:
-            sim = float(sim_matrix[i, j])
-            if sim < EDGE_THRESHOLD:
-                continue
+
+    # Phase 1: Maximum spanning tree (Kruskal) — guarantees every node has ≥1 edge.
+    # We sort all pairs by similarity descending and union-find to build the MST.
+    all_pairs = sorted(
+        ((float(sim_matrix[i, j]), i, j) for i in range(NC) for j in range(i + 1, NC)),
+        reverse=True,
+    )
+    parent = list(range(NC))
+
+    def _find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for sim, i, j in all_pairs:
+        ri, rj = _find(i), _find(j)
+        if ri != rj:
+            parent[ri] = rj
             key = (min(i, j), max(i, j))
+            edge_set.add(key)
+            edges.append({
+                "source": cluster_nodes_raw[i]["id"],
+                "target": cluster_nodes_raw[j]["id"],
+                "similarity": round(sim, 4),
+                "weak": sim < STRONG_THRESHOLD,   # bridge edge flag for frontend styling
+            })
+
+    # Phase 2: Add extra strong edges (top-3 per node above threshold, deduplicated).
+    for i in range(NC):
+        top_idxs = np.argsort(sim_matrix[i])[-MAX_EDGES_PER_NODE:][::-1]
+        for j_idx in top_idxs:
+            sim = float(sim_matrix[i, j_idx])
+            if sim < STRONG_THRESHOLD:
+                continue
+            key = (min(i, j_idx), max(i, j_idx))
             if key not in edge_set:
                 edge_set.add(key)
                 edges.append({
-                    "source": narr_list[i].id,
-                    "target": narr_list[j].id,
+                    "source": cluster_nodes_raw[i]["id"],
+                    "target": cluster_nodes_raw[j_idx]["id"],
                     "similarity": round(sim, 4),
+                    "weak": False,
                 })
 
-    # ── Build node list ───────────────────────────────────────────────────────
+    # ── Finalize (strip internal fields) ─────────────────────────────────────
     nodes = [
         {
-            "id": n.id,
-            "name": n.name,
+            "id": cn["id"],
+            "label": cn["label"],
+            "member_count": cn["member_count"],
+            "total_events": cn["total_events"],
+            "model_risk": cn["model_risk"],
+            "current_surprise": cn["current_surprise"],
+            "current_impact": cn["current_impact"],
+            "member_names": cn["member_names"],
             "x": round(float(x2d[i, 0]), 4),
             "y": round(float(x2d[i, 1]), 4),
-            "model_risk": n.model_risk,
-            "current_surprise": n.current_surprise,
-            "current_impact": n.current_impact,
-            "event_count": n.event_count,
-            "last_updated": n.last_updated,
         }
-        for i, n in enumerate(narr_list)
+        for i, cn in enumerate(cluster_nodes_raw)
     ]
 
     return {"nodes": nodes, "edges": edges}

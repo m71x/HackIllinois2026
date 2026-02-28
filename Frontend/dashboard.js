@@ -70,15 +70,17 @@ function handleMockMode(path) {
   if (path.includes("/risk")) return { model_risk_index: MOCK_DATA.riskIndex };
   if (path.includes("/narratives?")) return { narratives: MOCK_DATA.narratives };
   if (path.includes("/narratives/graph")) return {
-    nodes: MOCK_DATA.narratives.map((n, i) => ({
-      id: n.id, name: n.name,
-      x: Math.cos(2 * Math.PI * i / MOCK_DATA.narratives.length) * 0.7,
-      y: Math.sin(2 * Math.PI * i / MOCK_DATA.narratives.length) * 0.7,
-      model_risk: n.model_risk, current_surprise: n.current_surprise,
-      current_impact: n.current_impact, event_count: n.event_count,
-      last_updated: n.last_updated,
-    })),
-    edges: [{ source: "1", target: "2", similarity: 0.71 }, { source: "3", target: "5", similarity: 0.63 }],
+    nodes: [
+      { id: "cluster_0", label: "Global Energy Shock", member_count: 2, total_events: 195, model_risk: 0.89, current_surprise: 0.88, current_impact: 0.92, member_names: ["Global Energy Shock", "Oil Supply Disruption"], x: -0.6, y: 0.3 },
+      { id: "cluster_1", label: "Regional Bank Contagion", member_count: 1, total_events: 85, model_risk: 0.68, current_surprise: 0.72, current_impact: 0.65, member_names: ["Regional Bank Contagion"], x: 0.5, y: -0.4 },
+      { id: "cluster_2", label: "AI Labor Displacement Shock", member_count: 2, total_events: 363, model_risk: 0.64, current_surprise: 0.91, current_impact: 0.45, member_names: ["Semiconductor Export Bans", "AI Labor Displacement Shock"], x: 0.7, y: 0.5 },
+      { id: "cluster_3", label: "Sovereign Debt Downgrade", member_count: 1, total_events: 22, model_risk: 0.57, current_surprise: 0.35, current_impact: 0.95, member_names: ["Sovereign Debt Downgrade"], x: -0.2, y: -0.75 },
+    ],
+    edges: [
+      { source: "cluster_0", target: "cluster_1", similarity: 0.61, weak: false },
+      { source: "cluster_1", target: "cluster_3", similarity: 0.52, weak: false },
+      { source: "cluster_2", target: "cluster_3", similarity: 0.38, weak: true },
+    ],
   };
   if (path.includes("/narratives/")) return { ...MOCK_DATA.narratives[0], surprise_series: MOCK_DATA.history.map(h => ({ timestamp: h.timestamp, value: h.model_risk_index - 0.2 })), impact_series: MOCK_DATA.history.map(h => ({ timestamp: h.timestamp, value: h.model_risk_index + 0.1 })), model_risk_series: MOCK_DATA.history.map(h => ({ timestamp: h.timestamp, value: h.model_risk_index })), recent_headlines: ["US blocks LNG exports to EU", "Gas futures collapse 40%", "emergency rationing invoked in Berlin", "CNBC market alert: Energy sector halts trading"] };
   if (path.includes("/pipeline/stats")) return { pipeline: MOCK_DATA.pipeline, narratives: { total: 42, active: 5 } };
@@ -2958,21 +2960,22 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // ============================================================
-// SECTION — Narrative Vector Space Graph
+// SECTION — Narrative Cluster Graph
 // ============================================================
 
 const _ng = {
-  nodes: [],        // {id, name, px, py, model_risk, current_surprise, current_impact, event_count, last_updated}
+  nodes: [],        // cluster nodes: {id, label, px, py, member_count, total_events, model_risk, current_surprise, current_impact, member_names}
   edges: [],        // {source, target, similarity}
-  colorMode: "risk", // "risk" | "surprise"
+  colorMode: "risk",
   hoveredId: null,
   rafId: null,
-  recentIds: new Set(),   // narrative IDs pulsed from live SSE events
-  recentTimers: {},
+  pulseT: 0,        // global pulse phase for "live update" ring
+  pulsing: false,   // true for 3s after any ingest
 };
 
 let _ngLoaded = false;
 let _ngRefreshTimer = null;
+let _ngPulseTimer = null;
 
 async function loadNarrativeGraph() {
   const overlay = document.getElementById("ng-overlay");
@@ -2987,13 +2990,14 @@ async function loadNarrativeGraph() {
 
     const W = canvas.offsetWidth || 900;
     const H = canvas.offsetHeight || 480;
-    const PAD = 80;
+    const PAD = 100;
     const mapX = x => PAD + ((x + 1) / 2) * (W - 2 * PAD);
     const mapY = y => PAD + ((y + 1) / 2) * (H - 2 * PAD);
 
     _ng.nodes = data.nodes.map(n => ({ ...n, px: mapX(n.x), py: mapY(n.y) }));
     _ng.edges = data.edges;
 
+    // Relax cluster positions so circles don't overlap
     _ngRelax(W, H, PAD);
 
     _ngLoaded = true;
@@ -3005,47 +3009,73 @@ async function loadNarrativeGraph() {
   }
 }
 
+function _ngClusterRadius(node) {
+  // Radius grows with member count: range ~22–52px
+  return Math.max(22, Math.min(52, 16 + node.member_count * 5));
+}
+
 function _ngRelax(W, H, PAD) {
-  // Simple repulsion pass to separate overlapping nodes
   const N = _ng.nodes.length;
   if (N < 2) return;
-  const MIN_DIST = 60;
-  for (let iter = 0; iter < 60; iter++) {
+  for (let iter = 0; iter < 80; iter++) {
     const fx = new Float64Array(N);
     const fy = new Float64Array(N);
     for (let i = 0; i < N; i++) {
       for (let j = i + 1; j < N; j++) {
+        const ri = _ngClusterRadius(_ng.nodes[i]);
+        const rj = _ngClusterRadius(_ng.nodes[j]);
+        const MIN_DIST = ri + rj + 30;  // gap between circle edges
         const dx = _ng.nodes[j].px - _ng.nodes[i].px;
         const dy = _ng.nodes[j].py - _ng.nodes[i].py;
         const dist = Math.hypot(dx, dy) + 0.01;
         if (dist < MIN_DIST) {
-          const f = (MIN_DIST - dist) * 0.3 / dist;
+          const f = (MIN_DIST - dist) * 0.35 / dist;
           fx[i] -= f * dx; fy[i] -= f * dy;
           fx[j] += f * dx; fy[j] += f * dy;
         }
       }
     }
     for (let i = 0; i < N; i++) {
-      _ng.nodes[i].px = Math.max(PAD, Math.min(W - PAD, _ng.nodes[i].px + fx[i] * 0.8));
-      _ng.nodes[i].py = Math.max(PAD, Math.min(H - PAD, _ng.nodes[i].py + fy[i] * 0.8));
+      _ng.nodes[i].px = Math.max(PAD, Math.min(W - PAD, _ng.nodes[i].px + fx[i] * 0.75));
+      _ng.nodes[i].py = Math.max(PAD, Math.min(H - PAD, _ng.nodes[i].py + fy[i] * 0.75));
     }
   }
 }
 
 function _ngColor(v, mode) {
-  if (mode === "surprise") {
-    if (v < 0.33) return "#06b6d4";    // calm — cyan
-    if (v < 0.66) return "#f59e0b";    // active — amber
-    return "#8b5cf6";                   // high surprise — purple
-  }
-  // risk: green → amber → red
-  if (v < 0.33) return "#10b981";
-  if (v < 0.66) return "#f59e0b";
-  return "#ef4444";
+  // HSL-based vivid gradient with power curve, returned as a hex string
+  // so that callers can safely append 2-digit hex alpha codes (e.g. color + "44").
+  const t = Math.pow(Math.max(0, Math.min(1, v ?? 0)), 0.8);
+  const [h, s, l] = mode === "surprise"
+    ? [185 + t * 95, (78 + t * 14) / 100, (56 - t * 20) / 100]  // cyan → purple
+    : [142 * (1 - t), (62 + t * 30) / 100, (47 - t * 12) / 100]; // green → red
+  // Standard HSL → RGB → hex conversion
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const k = (n + h / 30) % 12;
+    return Math.round(255 * (l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)))
+      .toString(16).padStart(2, "0");
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-function _ngRadius(node) {
-  return Math.max(6, Math.min(18, 5 + Math.log((node.event_count || 1) + 1) * 2.2));
+function _ngWrapText(ctx, text, maxWidth) {
+  // Split label into up to 2 lines that fit within maxWidth
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) {
+      lines.push(line);
+      line = w;
+      if (lines.length === 1) { lines.push(line); break; }  // max 2 lines
+    } else {
+      line = test;
+    }
+  }
+  if (lines.length === 0) lines.push(line);
+  return lines.slice(0, 2);
 }
 
 function _ngDraw() {
@@ -3072,77 +3102,121 @@ function _ngDraw() {
     return;
   }
 
-  // Build id → node index map for edge lookup
   const idxMap = {};
   _ng.nodes.forEach((n, i) => { idxMap[n.id] = i; });
 
-  // Draw edges (behind nodes)
-  ctx.save();
+  // ── Edges (drawn first, behind nodes) ────────────────────────────────────
   _ng.edges.forEach(e => {
     const a = _ng.nodes[idxMap[e.source]];
     const b = _ng.nodes[idxMap[e.target]];
     if (!a || !b) return;
-    const alpha = Math.max(0.06, (e.similarity - 0.55) / 0.45 * 0.4);
-    ctx.beginPath();
-    ctx.moveTo(a.px, a.py);
-    ctx.lineTo(b.px, b.py);
-    ctx.strokeStyle = `rgba(148,163,184,${alpha.toFixed(2)})`;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 5]);
-    ctx.stroke();
-  });
-  ctx.setLineDash([]);
-  ctx.restore();
 
-  // Draw nodes
+    // Line from circle edge to circle edge (not center-to-center)
+    const ra = _ngClusterRadius(a), rb = _ngClusterRadius(b);
+    const dx = b.px - a.px, dy = b.py - a.py;
+    const len = Math.hypot(dx, dy) + 0.01;
+    const ux = dx / len, uy = dy / len;
+
+    // Weak bridge edges (MST-only, similarity < 0.45) → dashed, faint
+    // Strong edges → solid, more opaque, thicker
+    const isWeak = e.weak === true;
+    const alpha = isWeak
+      ? 0.18 + e.similarity * 0.15          // faint: 0.18–0.33
+      : 0.28 + (e.similarity - 0.45) * 0.8; // strong: 0.28–0.72
+
+    ctx.beginPath();
+    ctx.moveTo(a.px + ux * ra, a.py + uy * ra);
+    ctx.lineTo(b.px - ux * rb, b.py - uy * rb);
+    if (isWeak) {
+      ctx.setLineDash([4, 6]);
+      ctx.strokeStyle = `rgba(100,116,139,${alpha.toFixed(2)})`;
+      ctx.lineWidth = 1;
+    } else {
+      ctx.setLineDash([]);
+      ctx.strokeStyle = `rgba(148,163,184,${alpha.toFixed(2)})`;
+      ctx.lineWidth = 1 + e.similarity * 1.5;
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Similarity % label at midpoint (only for strong edges — weak ones are noisy)
+    if (!isWeak) {
+      const mx = (a.px + b.px) / 2, my = (a.py + b.py) / 2;
+      ctx.fillStyle = "rgba(139,148,158,0.55)";
+      ctx.font = "9px 'JetBrains Mono'";
+      ctx.textAlign = "center";
+      ctx.fillText((e.similarity * 100).toFixed(0) + "%", mx, my - 4);
+    }
+  });
+
+  // ── Nodes ─────────────────────────────────────────────────────────────────
   _ng.nodes.forEach(n => {
-    const r = _ngRadius(n);
+    const r = _ngClusterRadius(n);
     const v = _ng.colorMode === "risk" ? (n.model_risk ?? 0) : (n.current_surprise ?? 0);
     const color = _ngColor(v, _ng.colorMode);
     const isHovered = n.id === _ng.hoveredId;
-    const isRecent = _ng.recentIds.has(n.id);
 
-    // Animated pulse ring for live-updated nodes
-    if (isRecent) {
-      const t = (Date.now() % 1800) / 1800;
-      const pr = r + 4 + 8 * t;
-      const pa = 0.5 * (1 - t);
-      ctx.beginPath();
-      ctx.arc(n.px, n.py, pr, 0, Math.PI * 2);
-      ctx.strokeStyle = color + Math.round(pa * 255).toString(16).padStart(2, "0");
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-
-    // Glow halo
-    const glowR = r + (isHovered ? 12 : 6);
-    const grad = ctx.createRadialGradient(n.px, n.py, r * 0.5, n.px, n.py, glowR);
-    grad.addColorStop(0, color + "44");
+    // Outer glow halo
+    const glowR = r + (isHovered ? 18 : 10);
+    const grad = ctx.createRadialGradient(n.px, n.py, r * 0.6, n.px, n.py, glowR);
+    grad.addColorStop(0, color + "55");
     grad.addColorStop(1, color + "00");
     ctx.beginPath();
     ctx.arc(n.px, n.py, glowR, 0, Math.PI * 2);
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // Node fill
+    // Live-update pulse ring (global pulsing state)
+    if (_ng.pulsing) {
+      const t = (_ng.pulseT % 1800) / 1800;
+      const pr = r + 6 + 12 * t;
+      ctx.beginPath();
+      ctx.arc(n.px, n.py, pr, 0, Math.PI * 2);
+      ctx.strokeStyle = color + Math.round((0.5 * (1 - t)) * 255).toString(16).padStart(2, "0");
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Circle fill — dark interior with colored rim
     ctx.beginPath();
     ctx.arc(n.px, n.py, r, 0, Math.PI * 2);
-    ctx.fillStyle = color + (isHovered ? "ff" : "cc");
+    const fillGrad = ctx.createRadialGradient(n.px - r * 0.25, n.py - r * 0.25, 0, n.px, n.py, r);
+    fillGrad.addColorStop(0, color + "55");
+    fillGrad.addColorStop(1, color + "22");
+    ctx.fillStyle = fillGrad;
     ctx.fill();
-    ctx.strokeStyle = isHovered ? "#ffffff" : color;
-    ctx.lineWidth = isHovered ? 2 : 1;
+    ctx.strokeStyle = color + (isHovered ? "ff" : "bb");
+    ctx.lineWidth = isHovered ? 3 : 2;
     ctx.stroke();
 
-    // Label
-    const label = n.name.length > 24 ? n.name.slice(0, 22) + "…" : n.name;
-    ctx.fillStyle = isHovered ? "rgba(255,255,255,0.95)" : "rgba(139,148,158,0.85)";
-    ctx.font = isHovered ? "bold 10.5px 'Inter'" : "10px 'Inter'";
+    // Member count badge (top-right of circle)
+    const badgeR = 9;
+    const bx = n.px + r * 0.72, by = n.py - r * 0.72;
+    ctx.beginPath();
+    ctx.arc(bx, by, badgeR, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = "#050811";
+    ctx.font = "bold 8px 'JetBrains Mono'";
     ctx.textAlign = "center";
-    ctx.fillText(label, n.px, n.py + r + 13);
+    ctx.fillText(String(n.member_count), bx, by + 3);
+
+    // Label lines centered inside circle
+    ctx.textAlign = "center";
+    const fontSize = Math.max(8, Math.min(11, r * 0.32));
+    ctx.font = `600 ${fontSize}px 'Outfit'`;
+    const maxTextW = r * 1.5;
+    const lines = _ngWrapText(ctx, n.label, maxTextW);
+    const lineH = fontSize + 2;
+    const totalH = lines.length * lineH;
+    const startY = n.py - totalH / 2 + fontSize * 0.85;
+    ctx.fillStyle = isHovered ? "#ffffff" : "rgba(220,230,240,0.92)";
+    lines.forEach((line, li) => ctx.fillText(line, n.px, startY + li * lineH));
   });
 
-  // Continue animation loop only while recent nodes exist
-  if (_ng.recentIds.size > 0) {
+  // Continue rAF only while pulsing
+  if (_ng.pulsing) {
+    _ng.pulseT += 20;
     _ng.rafId = requestAnimationFrame(_ngDraw);
   } else {
     _ng.rafId = null;
@@ -3150,10 +3224,11 @@ function _ngDraw() {
 }
 
 function _ngFindHovered(mx, my) {
-  let closest = null, minDist = 22;
+  let closest = null, minDist = Infinity;
   _ng.nodes.forEach(n => {
+    const r = _ngClusterRadius(n);
     const d = Math.hypot(n.px - mx, n.py - my);
-    if (d < minDist) { minDist = d; closest = n; }
+    if (d < r + 8 && d < minDist) { minDist = d; closest = n; }
   });
   return closest;
 }
@@ -3165,54 +3240,51 @@ function _ngShowTooltip(node, cx, cy) {
 
   const riskV = (node.model_risk ?? 0).toFixed(2);
   const surpV = (node.current_surprise ?? 0).toFixed(2);
-  const impV  = (node.current_impact  ?? 0).toFixed(2);
+  const impV = (node.current_impact ?? 0).toFixed(2);
   const riskC = _ngColor(node.model_risk ?? 0, "risk");
+  const memberList = (node.member_names ?? [])
+    .map(nm => `<div style="font-size:0.68rem;color:var(--text-muted);padding-left:0.5rem">· ${nm}</div>`)
+    .join("");
 
   tip.innerHTML = `
-    <div class="ng-tooltip-name">${node.name}</div>
+    <div class="ng-tooltip-name">${node.label}</div>
+    <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.4rem">${node.member_count} narrative${node.member_count !== 1 ? "s" : ""} · ${node.total_events} events</div>
     <div class="ng-tooltip-stats">
       <div class="ng-tooltip-stat">Risk<span style="color:${riskC}">${riskV}</span></div>
       <div class="ng-tooltip-stat">Surprise<span>${surpV}</span></div>
       <div class="ng-tooltip-stat">Impact<span>${impV}</span></div>
-      <div class="ng-tooltip-stat">Events<span>${node.event_count}</span></div>
     </div>
-    <div style="margin-top:0.4rem;font-size:0.68rem;color:var(--text-dim)">Click to inspect</div>
+    ${memberList ? `<div style="margin-top:0.4rem;border-top:1px solid rgba(255,255,255,0.06);padding-top:0.35rem">${memberList}</div>` : ""}
   `;
 
   const wrapRect = wrap.getBoundingClientRect();
-  const tipW = 220, tipH = 130;
+  const tipW = 230, tipH = 160;
   let tx = cx + 16, ty = cy - 20;
-  if (tx + tipW > wrapRect.width)  tx = cx - tipW - 12;
+  if (tx + tipW > wrapRect.width) tx = cx - tipW - 12;
   if (ty + tipH > wrapRect.height) ty = cy - tipH;
   if (ty < 0) ty = 8;
 
   tip.style.left = tx + "px";
-  tip.style.top  = ty + "px";
+  tip.style.top = ty + "px";
   tip.classList.remove("hidden");
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  const canvas     = document.getElementById("ng-canvas");
-  const riskBtn    = document.getElementById("ng-color-risk");
+  const canvas = document.getElementById("ng-canvas");
+  const riskBtn = document.getElementById("ng-color-risk");
   const surpriseBtn = document.getElementById("ng-color-surprise");
   const refreshBtn = document.getElementById("ng-refresh-btn");
   if (!canvas) return;
 
-  let _ngMouseDown = { x: 0, y: 0 };
-
   canvas.addEventListener("mousemove", e => {
     const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
     const hovered = _ngFindHovered(mx, my);
     const prev = _ng.hoveredId;
     _ng.hoveredId = hovered?.id ?? null;
-    canvas.style.cursor = hovered ? "pointer" : "default";
-    if (hovered) {
-      _ngShowTooltip(hovered, mx, my);
-    } else {
-      document.getElementById("ng-tooltip")?.classList.add("hidden");
-    }
+    canvas.style.cursor = hovered ? "default" : "default";
+    if (hovered) _ngShowTooltip(hovered, mx, my);
+    else document.getElementById("ng-tooltip")?.classList.add("hidden");
     if (prev !== _ng.hoveredId) _ngDraw();
   });
 
@@ -3220,14 +3292,6 @@ document.addEventListener("DOMContentLoaded", () => {
     _ng.hoveredId = null;
     document.getElementById("ng-tooltip")?.classList.add("hidden");
     _ngDraw();
-  });
-
-  canvas.addEventListener("mousedown", e => { _ngMouseDown = { x: e.clientX, y: e.clientY }; });
-  canvas.addEventListener("click", e => {
-    if (Math.hypot(e.clientX - _ngMouseDown.x, e.clientY - _ngMouseDown.y) > 5) return;
-    const rect = canvas.getBoundingClientRect();
-    const node = _ngFindHovered(e.clientX - rect.left, e.clientY - rect.top);
-    if (node) openNarrativeModal(node.id);
   });
 
   riskBtn?.addEventListener("click", () => {
@@ -3250,30 +3314,220 @@ document.addEventListener("DOMContentLoaded", () => {
     loadNarrativeGraph().finally(() => icon?.classList.remove("spinning"));
   });
 
-  window.addEventListener("resize", () => {
-    if (_ngLoaded) loadNarrativeGraph();
-  });
+  window.addEventListener("resize", () => { if (_ngLoaded) loadNarrativeGraph(); });
 
   loadNarrativeGraph();
 });
 
-// ── Hook into appendFeedItem for live SSE-driven graph updates ────────────────
+// ── Hook into appendFeedItem for live graph updates ───────────────────────────
 
 const _ngOrigAppendFeedItem = appendFeedItem;
 appendFeedItem = function (result) {
   _ngOrigAppendFeedItem.call(this, result);
 
-  // Pulse the affected narrative node
-  if (result?.narrative_id) {
-    _ng.recentIds.add(result.narrative_id);
-    clearTimeout(_ng.recentTimers[result.narrative_id]);
-    _ng.recentTimers[result.narrative_id] = setTimeout(() => {
-      _ng.recentIds.delete(result.narrative_id);
-    }, 60_000);
+  // Brief global pulse on any ingest, then debounced full re-cluster
+  if (!_ng.pulsing) {
+    _ng.pulsing = true;
     if (!_ng.rafId) _ng.rafId = requestAnimationFrame(_ngDraw);
   }
+  clearTimeout(_ngPulseTimer);
+  _ngPulseTimer = setTimeout(() => { _ng.pulsing = false; }, 3000);
 
-  // Debounced full graph refresh (2s delay to batch rapid ingests)
   clearTimeout(_ngRefreshTimer);
-  _ngRefreshTimer = setTimeout(loadNarrativeGraph, 2000);
+  _ngRefreshTimer = setTimeout(loadNarrativeGraph, 2500);
+};
+
+// ============================================================
+// SECTION — Narrative Ticker Tab
+// ============================================================
+
+const _ntPrev = {};   // { [id]: { model_risk, current_surprise, current_impact } }
+let _ntReady = false;
+let _ntIngestDebounce = null;
+
+function _ntTimeAgo(ts) {
+  const s = Math.floor(Date.now() / 1000 - (ts ?? 0));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function _ntFlash(cell, dir) {
+  cell.style.animation = "none";
+  void cell.offsetWidth;   // force reflow
+  cell.style.animation = `nt-flash-${dir} 1.5s ease-out forwards`;
+}
+
+function _ntBuildRow(n) {
+  const risk = n.model_risk ?? 0;
+  const surp = n.current_surprise ?? 0;
+  const imp = n.current_impact ?? 0;
+  const riskColor = _ngColor(risk, "risk");
+  const surpColor = _ngColor(surp, "surprise");
+  const impColor = _ngColor(imp, "risk");
+
+  const trend = n.surprise_trend ?? "stable";
+  const trendIcon = trend === "rising" ? "▲" : trend === "falling" ? "▼" : "—";
+  const trendColor = trend === "rising" ? "var(--risk-low)"
+    : trend === "falling" ? "var(--risk-high)"
+      : "var(--text-dim)";
+
+  // Subtle row tint: intensity scales with risk
+  const alpha = (0.03 + risk * 0.08).toFixed(3);
+  const rgbRisk = risk > 0.66 ? "239,68,68" : risk > 0.33 ? "245,158,11" : "16,185,129";
+  const bg = `rgba(${rgbRisk},${alpha})`;
+
+  const tr = document.createElement("tr");
+  tr.id = `nt-row-${n.id}`;
+  tr.className = "nt-row";
+  tr.style.cssText = `border-left-color:${riskColor};background:${bg}`;
+  tr.dataset.id = n.id;
+
+  const desc = n.description ? n.description.slice(0, 68) + (n.description.length > 68 ? "…" : "") : "";
+  tr.innerHTML = `
+    <td>
+      <div class="nt-name">${n.name}</div>
+      ${desc ? `<div class="nt-name-sub">${desc}</div>` : ""}
+    </td>
+    <td class="nt-val nt-risk-cell"  style="color:${riskColor}">${risk.toFixed(3)}</td>
+    <td class="nt-val nt-surp-cell"  style="color:${surpColor}">${surp.toFixed(3)}</td>
+    <td class="nt-val nt-imp-cell"   style="color:${impColor}">${imp.toFixed(3)}</td>
+    <td class="nt-events">${n.event_count ?? 0}</td>
+    <td class="nt-trend" style="color:${trendColor}">${trendIcon}</td>
+    <td class="nt-time">${_ntTimeAgo(n.last_updated)}</td>
+  `;
+  tr.addEventListener("click", () => openNarrativeModal(n.id));
+  return tr;
+}
+
+function _ntUpdateRow(tr, n) {
+  const risk = n.model_risk ?? 0;
+  const surp = n.current_surprise ?? 0;
+  const imp = n.current_impact ?? 0;
+  const prev = _ntPrev[n.id] ?? { model_risk: risk, current_surprise: surp, current_impact: imp };
+
+  const riskDelta = risk - prev.model_risk;
+  const surpDelta = surp - prev.current_surprise;
+  _ntPrev[n.id] = { model_risk: risk, current_surprise: surp, current_impact: imp };
+
+  const riskColor = _ngColor(risk, "risk");
+  const surpColor = _ngColor(surp, "surprise");
+  const impColor = _ngColor(imp, "risk");
+
+  // Update row tint
+  const alpha = (0.03 + risk * 0.08).toFixed(3);
+  const rgbRisk = risk > 0.66 ? "239,68,68" : risk > 0.33 ? "245,158,11" : "16,185,129";
+  tr.style.borderLeftColor = riskColor;
+  tr.style.background = `rgba(${rgbRisk},${alpha})`;
+
+  const riskCell = tr.querySelector(".nt-risk-cell");
+  const surpCell = tr.querySelector(".nt-surp-cell");
+  const impCell = tr.querySelector(".nt-imp-cell");
+  const timeCell = tr.querySelector(".nt-time");
+  const evCell = tr.querySelector(".nt-events");
+  const trendCell = tr.querySelector(".nt-trend");
+
+  const EPSILON = 0.003;
+
+  if (riskCell) {
+    const newTxt = risk.toFixed(3);
+    if (riskCell.textContent !== newTxt) {
+      riskCell.textContent = newTxt;
+      riskCell.style.color = riskColor;
+      if (Math.abs(riskDelta) > EPSILON)
+        _ntFlash(riskCell, riskDelta > 0 ? "down" : "up");  // risk ↑ = bad (red), risk ↓ = good (green)
+    }
+  }
+  if (surpCell) {
+    const newTxt = surp.toFixed(3);
+    if (surpCell.textContent !== newTxt) {
+      surpCell.textContent = newTxt;
+      surpCell.style.color = surpColor;
+      if (Math.abs(surpDelta) > EPSILON)
+        _ntFlash(surpCell, surpDelta > 0 ? "up" : "down");  // surprise ↑ = novel (green)
+    }
+  }
+  if (impCell) { impCell.textContent = imp.toFixed(3); impCell.style.color = impColor; }
+  if (evCell) { evCell.textContent = n.event_count ?? 0; }
+  if (timeCell) { timeCell.textContent = _ntTimeAgo(n.last_updated); }
+
+  if (trendCell) {
+    const trend = n.surprise_trend ?? "stable";
+    trendCell.textContent = trend === "rising" ? "▲" : trend === "falling" ? "▼" : "—";
+    trendCell.style.color = trend === "rising" ? "var(--risk-low)"
+      : trend === "falling" ? "var(--risk-high)"
+        : "var(--text-dim)";
+  }
+}
+
+async function _ntRefresh() {
+  const tbody = document.getElementById("nt-tbody");
+  if (!tbody) return;
+  try {
+    const data = await fetchJSON("/narratives?sort_by=risk&limit=200");
+    const narratives = data?.narratives ?? [];
+
+    if (!_ntReady) {
+      // First load: build from scratch in risk-sorted order
+      tbody.innerHTML = "";
+      narratives.forEach(n => {
+        tbody.appendChild(_ntBuildRow(n));
+        _ntPrev[n.id] = { model_risk: n.model_risk ?? 0, current_surprise: n.current_surprise ?? 0, current_impact: n.current_impact ?? 0 };
+      });
+      _ntReady = true;
+    } else {
+      // Incremental: update existing rows, prepend new ones
+      narratives.forEach(n => {
+        const existing = document.getElementById(`nt-row-${n.id}`);
+        if (existing) {
+          _ntUpdateRow(existing, n);
+        } else {
+          const tr = _ntBuildRow(n);
+          tr.classList.add("nt-new");
+          tbody.insertBefore(tr, tbody.firstChild);
+          _ntPrev[n.id] = { model_risk: n.model_risk ?? 0, current_surprise: n.current_surprise ?? 0, current_impact: n.current_impact ?? 0 };
+        }
+      });
+    }
+
+    const countEl = document.getElementById("nt-count");
+    const updEl = document.getElementById("nt-last-updated");
+    if (countEl) countEl.textContent = `${narratives.length} narrative${narratives.length !== 1 ? "s" : ""}`;
+    if (updEl) updEl.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    document.getElementById("nt-empty")?.classList.add("hidden");
+  } catch (e) {
+    console.warn("[NarrativeTicker] refresh failed", e);
+  }
+}
+
+// Refresh timestamps every 30s without a full API call
+setInterval(() => {
+  document.querySelectorAll("#nt-tbody .nt-time").forEach(cell => {
+    const row = cell.closest(".nt-row");
+    if (!row) return;
+    // last_updated not stored in _ntPrev separately; timestamps resync on next _ntRefresh
+  });
+}, 30_000);
+
+document.addEventListener("DOMContentLoaded", () => {
+  // Load ticker on first tab open
+  document.querySelector('[data-target="ticker-tab"]')?.addEventListener("click", () => {
+    if (!_ntReady) _ntRefresh();
+  });
+
+  // Auto-refresh every 8s while the tab is visible
+  setInterval(() => {
+    if (!document.getElementById("ticker-tab")?.classList.contains("hidden")) {
+      _ntRefresh();
+    }
+  }, 8_000);
+});
+
+// Extend the existing appendFeedItem hook to also refresh the ticker
+const _ntOrigFeed = appendFeedItem;
+appendFeedItem = function (result) {
+  _ntOrigFeed.call(this, result);
+  clearTimeout(_ntIngestDebounce);
+  _ntIngestDebounce = setTimeout(_ntRefresh, 1500);
 };

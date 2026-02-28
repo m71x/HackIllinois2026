@@ -50,6 +50,8 @@
         Dashboard</button>
       <span class="tab-divider">|</span>
       <button class="tab-btn" data-target="stocks-tab"><i class="ph ph-trend-up"></i> Global Equities</button>
+      <span class="tab-divider">|</span>
+      <button class="tab-btn" data-target="ticker-tab"><i class="ph ph-pulse"></i> Narrative Ticker</button>
     </div>
     <div class="header-right">
       <button id="theme-toggle" class="icon-btn theme-btn" title="Toggle Theme">
@@ -240,7 +242,8 @@
       <div class="card-header split">
         <h2><i class="ph ph-warning-octagon"></i> High Risk Stock Exposure</h2>
         <div style="display:flex;align-items:center;gap:0.75rem;">
-          <span class="feed-status-text" id="high-risk-status" style="font-size:0.72rem">Top 10 by narrative exposure</span>
+          <span class="feed-status-text" id="high-risk-status" style="font-size:0.72rem">Top 10 by narrative
+            exposure</span>
           <button class="icon-btn" id="high-risk-refresh-btn" title="Refresh risk scores">
             <i class="ph ph-arrows-clockwise"></i>
           </button>
@@ -429,6 +432,44 @@
       </div>
     </section>
 
+  </main>
+
+  <!-- ===================== NARRATIVE TICKER TAB ===================== -->
+  <main id="ticker-tab" class="grid tab-pane hidden">
+    <section class="card glass-panel wide">
+      <div class="card-header split">
+        <h2>
+          <i class="ph ph-pulse"></i> Narrative Risk Ticker
+          <span class="nt-live-badge"><span class="pulse-dot"></span> LIVE</span>
+        </h2>
+        <div style="display:flex;align-items:center;gap:1rem">
+          <span class="feed-status-text" id="nt-count">—</span>
+          <span class="feed-status-text" id="nt-last-updated" style="font-size:0.7rem;color:var(--text-dim)">—</span>
+        </div>
+      </div>
+      <div class="nt-table-wrap custom-scrollbar">
+        <table class="nt-table" id="nt-table">
+          <thead>
+            <tr>
+              <th class="nt-th-name">Narrative</th>
+              <th class="nt-th-num">Risk</th>
+              <th class="nt-th-num">Surprise</th>
+              <th class="nt-th-num">Impact</th>
+              <th class="nt-th-num">Events</th>
+              <th class="nt-th-trend">Trend</th>
+              <th class="nt-th-time">Updated</th>
+            </tr>
+          </thead>
+          <tbody id="nt-tbody">
+            <!-- Populated by dashboard.js -->
+          </tbody>
+        </table>
+      </div>
+      <div id="nt-empty" class="empty-state hidden">
+        <div class="spinner"></div>
+        <p>Loading narrative feed...</p>
+      </div>
+    </section>
   </main>
 
   <!-- ===================== NARRATIVE DETAIL MODAL ===================== -->
