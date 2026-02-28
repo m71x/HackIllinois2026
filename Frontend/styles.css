@@ -681,7 +681,8 @@ h3 {
   position: absolute;
   top: calc(100% + 5px);
   right: 0;
-  width: 180px;
+  min-width: 100%;
+  white-space: nowrap;
   background: rgba(15, 20, 35, 0.95);
   border: 1px solid rgba(0, 240, 255, 0.2);
   border-radius: var(--radius-sm);
@@ -703,10 +704,10 @@ h3 {
 }
 
 .dropdown-option {
-  padding: 0.8rem 1rem;
+  padding: 0.6rem 0.8rem;
   color: var(--text-muted);
   font-family: var(--font-body);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
