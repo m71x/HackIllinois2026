@@ -1,13 +1,13 @@
 """
-LLM client — calls the Cerebras API for all inference needs.
+LLM client -- calls the Cerebras API for all inference needs.
 
 Set CEREBRAS_API_KEY in .env (or environment) before starting the backend.
 Optionally override the model with CEREBRAS_MODEL (default: llama-3.3-70b).
 
 Three public functions:
-    label_narrative(story_text)     → {"name": str, "description": str}
-    score_story(...)                → {"surprise": float, "impact": float}
-    summarize_narrative_context(...)→ str
+    label_narrative(story_text)     -> {"name": str, "description": str}
+    score_story(...)                -> {"surprise": float, "impact": float}
+    summarize_narrative_context(...)-> str
 """
 
 import json
@@ -16,7 +16,7 @@ from cerebras.cloud.sdk import Cerebras
 from core.config import settings
 
 
-# Lazy singleton — created on first use so startup doesn't fail if key is missing.
+# Lazy singleton -- created on first use so startup doesn't fail if key is missing.
 _client: Cerebras | None = None
 
 def _get_client() -> Cerebras:
@@ -47,7 +47,7 @@ def _chat(messages: list[dict], max_tokens: int = 256, temperature: float = 0.1)
         except Exception as e:
             if attempt == 2:
                 # Fall back to empty on final failure
-                print(f"[llm_client] Modal call failed after 3 attempts: {e}")
+                print(f"[llm_client] Cerebras call failed after 3 attempts: {e}")
                 return ""
             time.sleep(2 ** attempt)
     return ""
@@ -76,10 +76,10 @@ _LABEL_PROMPT = """You are a financial risk analyst identifying persistent real-
 
 A "narrative direction" is a broad, ongoing real-world theme that can drive market model breakdown.
 Examples:
-  - "Energy supply shock" — ongoing constraints on energy availability affecting markets
-  - "Regional banking stress" — deteriorating confidence in mid-size banks
-  - "China trade policy tightening" — escalating restrictions on China-US trade
-  - "Sovereign debt pressure" — rising concern about government default risk
+  - "Energy supply shock" -- ongoing constraints on energy availability affecting markets
+  - "Regional banking stress" -- deteriorating confidence in mid-size banks
+  - "China trade policy tightening" -- escalating restrictions on China-US trade
+  - "Sovereign debt pressure" -- rising concern about government default risk
 
 A narrative direction is NOT a specific event. It is the underlying story arc.
 
@@ -98,13 +98,13 @@ Narrative direction: {narrative_description}
 {context_block}
 Score the following news story on two dimensions:
 
-SURPRISE [0.0–1.0]: How unexpected or regime-breaking is this development within the narrative?
+SURPRISE [0.0--1.0]: How unexpected or regime-breaking is this development within the narrative?
   0.0 = expected continuation already priced in
   0.5 = moderate escalation, partially surprising
   1.0 = sudden shock, reversal, or unprecedented development
 
-IMPACT [0.0–1.0]: How economically significant is this event?
-  Event severity (highest → lowest): sovereign default, bank collapse, military conflict,
+IMPACT [0.0--1.0]: How economically significant is this event?
+  Event severity (highest -> lowest): sovereign default, bank collapse, military conflict,
   sanctions, credit crisis, supply chain shutdown, regulatory ban, commodity shock,
   rate shock, political coup, large-cap earnings, executive departure, minor regulation
   0.0 = negligible market relevance
@@ -112,7 +112,7 @@ IMPACT [0.0–1.0]: How economically significant is this event?
   1.0 = systemic, multi-sector, global significance
 
 Respond with ONLY valid JSON. No commentary.
-{{"surprise": <float 0.0–1.0>, "impact": <float 0.0–1.0>}}
+{{"surprise": <float 0.0--1.0>, "impact": <float 0.0--1.0>}}
 
 News story:
 {story_text}"""

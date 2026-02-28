@@ -77,15 +77,28 @@ done
 echo ""
 echo "📰 Ingesting financial news stories..."
 
-curl -s -X POST http://localhost:8000/api/ingest/batch \
+# Try live RSS scrape first (real headlines, no API key needed)
+echo "   Scraping live RSS feeds (Reuters, BBC, NYT)..."
+SCRAPE_RESULT=$(curl -s -X POST http://localhost:8000/api/ingest/scrape \
   -H "Content-Type: application/json" \
-  -d @"$ROOT/seed_stories.json" | python3 -c "
+  -d '{"lookback_minutes": 1440, "max_per_source": 15, "sources": ["rss"]}')
+
+FETCHED=$(echo "$SCRAPE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ingested', 0))" 2>/dev/null || echo "0")
+
+if [ "$FETCHED" -gt 0 ]; then
+  echo "   ✅ Ingested $FETCHED live stories from RSS feeds"
+else
+  echo "   ⚠️  RSS returned 0 stories, falling back to seed data..."
+  curl -s -X POST http://localhost:8000/api/ingest/batch \
+    -H "Content-Type: application/json" \
+    -d @"$ROOT/seed_stories.json" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 created = sum(1 for r in d['results'] if r['action'] == 'created')
 updated = sum(1 for r in d['results'] if r['action'] == 'updated')
 print(f'   Processed {d[\"processed\"]} stories: {created} created, {updated} updated ({d[\"duration_seconds\"]}s)')
 "
+fi
 
 # ----------------------------------------------------------
 # 7. Verify

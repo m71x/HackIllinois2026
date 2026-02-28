@@ -101,6 +101,14 @@ class ScrapeParams:
 
     dry_run: bool = False
 
+    # RSS feed URLs — no API key needed
+    rss_feeds: list[str] = field(default_factory=lambda: [
+        "https://feeds.reuters.com/reuters/businessNews",
+        "https://feeds.bbci.co.uk/news/business/rss.xml",
+        "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
+        "https://feeds.reuters.com/reuters/topNews",
+    ])
+
 
 @dataclass
 class ScrapeResult:
@@ -291,6 +299,67 @@ def scrape_twitter(params: ScrapeParams) -> list[RawStory]:
 
 
 # ---------------------------------------------------------------------------
+# RSS feed scraper (no API key needed)
+# ---------------------------------------------------------------------------
+
+def scrape_rss(params: ScrapeParams) -> list[RawStory]:
+    """
+    Fetch headlines from public RSS feeds (Reuters, BBC, NYT, etc.).
+
+    No API key required. No rate limits. Returns real live headlines.
+    """
+    try:
+        import feedparser
+    except ImportError:
+        logger.warning("feedparser not installed. Run: pip install feedparser")
+        return []
+
+    since = datetime.now(timezone.utc) - timedelta(minutes=params.lookback_minutes)
+    stories = []
+
+    for feed_url in params.rss_feeds:
+        try:
+            feed = feedparser.parse(feed_url)
+            feed_name = feed.feed.get("title", feed_url.split("/")[2]) if feed.feed else feed_url.split("/")[2]
+
+            for entry in feed.entries[:params.max_per_source]:
+                headline = (entry.get("title") or "").strip()
+                body = (entry.get("summary") or entry.get("description") or "").strip()
+
+                if not headline:
+                    continue
+
+                # Parse published timestamp
+                published_at = time.time()
+                if hasattr(entry, "published_parsed") and entry.published_parsed:
+                    try:
+                        from calendar import timegm
+                        published_at = timegm(entry.published_parsed)
+                    except Exception:
+                        pass
+
+                # Filter by lookback window
+                if datetime.fromtimestamp(published_at, tz=timezone.utc) < since:
+                    continue
+
+                stories.append(RawStory(
+                    headline=headline,
+                    body=body,
+                    source=f"rss:{feed_name}",
+                    url=entry.get("link", ""),
+                    published_at=published_at,
+                ))
+
+            logger.info(f"RSS [{feed_name}]: fetched {len([s for s in stories if feed_name in s.source])} entries")
+
+        except Exception as e:
+            logger.error(f"RSS feed failed [{feed_url}]: {e}")
+
+    logger.info(f"RSS total: {len(stories)} stories from {len(params.rss_feeds)} feeds")
+    return stories
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -307,6 +376,8 @@ def scrape(params: ScrapeParams) -> list[RawStory]:
         raw.extend(scrape_newsapi(params))
     if "twitter" in params.sources:
         raw.extend(scrape_twitter(params))
+    if "rss" in params.sources:
+        raw.extend(scrape_rss(params))
 
     # Deduplicate
     fresh = []
@@ -326,3 +397,4 @@ def scrape(params: ScrapeParams) -> list[RawStory]:
 def cache_size() -> int:
     """Current number of entries in the dedup cache."""
     return _cache.size()
+

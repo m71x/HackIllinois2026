@@ -1201,6 +1201,39 @@ textarea {
   transform: translateY(1px);
 }
 
+.action-btn-primary {
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+  color: #000;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 1rem;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.action-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(0, 240, 255, 0.3);
+}
+
+.action-btn-primary:active {
+  transform: translateY(1px);
+}
+
+.action-btn-primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 /* ── Modal ── */
 .modal {
   position: fixed;

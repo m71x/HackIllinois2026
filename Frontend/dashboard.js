@@ -785,6 +785,29 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   updateStocks();
   setInterval(updateStocks, 2500); // 2.5s tick for stocks
+
+  // Live Scrape Button Logic
+  const liveScrapeBtn = document.getElementById("btn-live-scrape");
+  if (liveScrapeBtn) {
+    liveScrapeBtn.addEventListener("click", async () => {
+      // Set loading state
+      const originalHtml = liveScrapeBtn.innerHTML;
+      liveScrapeBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Scraping...';
+      liveScrapeBtn.disabled = true;
+
+      try {
+        await postJSON("/ingest/scrape", { lookback_minutes: 1440, max_per_source: 10, sources: ["rss"] });
+        // Force an immediate refresh
+        await refreshDashboard();
+      } catch (err) {
+        console.error("Live scrape failed:", err);
+      } finally {
+        // Restore button state
+        liveScrapeBtn.innerHTML = originalHtml;
+        liveScrapeBtn.disabled = false;
+      }
+    });
+  }
 });
 
 // ### ADDED (do not edit above)
