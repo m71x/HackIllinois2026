@@ -28,7 +28,7 @@ echo "✅ Virtual environment found"
 # 2. Install dependencies (if missing)
 # ----------------------------------------------------------
 echo "📦 Checking dependencies..."
-.venv/bin/pip install -q newsapi-python tweepy sentence-transformers 2>/dev/null
+.venv/bin/pip install -q newsapi-python tweepy sentence-transformers feedparser 2>/dev/null
 echo "✅ Dependencies ready"
 
 # ----------------------------------------------------------
@@ -72,40 +72,45 @@ for i in $(seq 1 30); do
 done
 
 # ----------------------------------------------------------
-# 6. Ingest real financial news stories
+# 6. Check Modal GPU embedder status
 # ----------------------------------------------------------
 echo ""
-echo "📰 Ingesting financial news stories..."
+MODAL_JSON=$(curl -s http://localhost:8000/api/modal/status)
+MODAL_CONNECTED=$(echo "$MODAL_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('connected', False))" 2>/dev/null || echo "False")
+MODAL_BACKEND=$(echo "$MODAL_JSON"  | python3 -c "import sys,json; print(json.load(sys.stdin).get('backend', 'unknown'))" 2>/dev/null || echo "unknown")
 
-# Try live RSS scrape first (real headlines, no API key needed)
-echo "   Scraping live RSS feeds (Reuters, BBC, NYT, CNBC, WSJ)..."
-SCRAPE_RESULT=$(curl -s -X POST http://localhost:8000/api/ingest/scrape \
-  -H "Content-Type: application/json" \
-  -d '{"lookback_minutes": 10080, "max_per_source": 100, "sources": ["rss"]}')
-
-FETCHED=$(echo "$SCRAPE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('ingested', 0))" 2>/dev/null || echo "0")
-
-if [ "$FETCHED" -gt 0 ]; then
-  echo "   ✅ Ingested $FETCHED live stories from RSS feeds"
+if [ "$MODAL_CONNECTED" = "True" ]; then
+  echo "🟢 Modal GPU Embedder  ✓  CONNECTED  (backend: $MODAL_BACKEND)"
 else
-  echo "   ⚠️  RSS returned 0 stories, falling back to seed data..."
-  curl -s -X POST http://localhost:8000/api/ingest/batch \
-    -H "Content-Type: application/json" \
-    -d @"$ROOT/seed_stories.json" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-created = sum(1 for r in d['results'] if r['action'] == 'created')
-updated = sum(1 for r in d['results'] if r['action'] == 'updated')
-print(f'   Processed {d[\"processed\"]} stories: {created} created, {updated} updated ({d[\"duration_seconds\"]}s)')
-"
+  echo "🟡 Modal GPU Embedder  ✗  OFFLINE    (backend: $MODAL_BACKEND — using local CPU)"
 fi
 
 # ----------------------------------------------------------
-# 7. Verify
+# 7. Bulk ingest — 90+ RSS feeds, 72 h lookback, 1000+ stories
 # ----------------------------------------------------------
 echo ""
-echo "📊 Verifying..."
-RISK=$(curl -s http://localhost:8000/api/risk | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Risk Index: {d[\"model_risk_index\"]}, Narratives: {d[\"narrative_count\"]}')")
+echo "📰 Bulk ingesting financial news (90+ feeds, 72 h lookback)..."
+echo "   ℹ️  The server auto-started bulk ingest on boot."
+echo "      Triggering an additional pass now for maximum coverage..."
+
+curl -s -X POST http://localhost:8000/api/ingest/bulk >/dev/null 2>&1 || true
+echo "   🔄 Bulk ingest running in background — watch server logs for progress"
+echo ""
+
+# Brief wait then show initial pipeline stats
+sleep 5
+STATS=$(curl -s http://localhost:8000/api/pipeline/stats 2>/dev/null || echo "{}")
+TOTAL=$(echo "$STATS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('narratives',{}).get('total',0))" 2>/dev/null || echo "0")
+INGESTED=$(echo "$STATS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('pipeline',{}).get('stories_ingested',0))" 2>/dev/null || echo "0")
+echo "   📊 Early stats: $INGESTED stories ingested → $TOTAL narrative clusters so far"
+echo "   (ingestion continues in background; refresh the dashboard in ~30 s)"
+
+# ----------------------------------------------------------
+# 8. Verify risk index
+# ----------------------------------------------------------
+echo ""
+echo "📊 Verifying risk index..."
+RISK=$(curl -s http://localhost:8000/api/risk | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Risk Index: {d[\"model_risk_index\"]}, Narratives: {d[\"narrative_count\"]}')" 2>/dev/null || echo "warming up...")
 echo "   $RISK"
 
 echo ""

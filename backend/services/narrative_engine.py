@@ -26,12 +26,54 @@ from core.config import settings
 from db import vector_store
 from models.narrative import NarrativeDirection
 from services.embedder import embed_text
-from services.llm_client import score_story, label_narrative
+from services.llm_client import label_narrative  # score_story replaced by heuristic
 
 NEW_NARRATIVE_THRESHOLD: float = settings.new_narrative_threshold
 
 # Prevents two threads from simultaneously deciding to create the same narrative
 _route_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Fast heuristic scorer — replaces Cerebras score_story() calls
+# ---------------------------------------------------------------------------
+
+_HIGH_IMPACT: frozenset[str] = frozenset([
+    "collapse", "default", "bankrupt", "crisis", "crash", "recession",
+    "shutdown", "sanctions", "war", "emergency", "contagion", "bank run",
+    "rate hike", "rate cut", "systemic", "panic", "invasion", "devaluation",
+    "insolvency", "failure", "downgrade", "freeze", "seized", "bailout",
+    "hyperinflation", "debt ceiling", "sovereign default", "credit crisis",
+])
+
+_MED_IMPACT: frozenset[str] = frozenset([
+    "inflation", "tariff", "regulation", "earnings", "gdp", "unemployment",
+    "deficit", "debt", "risk", "concern", "warning", "fell", "surge",
+    "decline", "rally", "threat", "pressure", "layoff", "volatility",
+    "correction", "tightening", "slowdown", "contraction", "revision",
+    "disruption", "shortage", "interest rate", "yield", "spread",
+])
+
+
+def _heuristic_score(headline: str, body: str, distance: float) -> dict:
+    """
+    Zero-latency surrogate for Cerebras score_story().
+
+    Surprise  = normalised cosine distance within the narrative cluster.
+                High distance → story is at the edge of the narrative → surprising.
+    Impact    = keyword frequency weighted sum, clamped to [0, 1].
+    """
+    surprise = min(1.0, max(0.05, distance / max(NEW_NARRATIVE_THRESHOLD, 0.01)))
+
+    text = (headline + " " + body[:600]).lower()
+    impact = 0.1
+    for kw in _HIGH_IMPACT:
+        if kw in text:
+            impact += 0.2
+    for kw in _MED_IMPACT:
+        if kw in text:
+            impact += 0.06
+
+    return {"surprise": round(surprise, 3), "impact": round(min(1.0, impact), 3)}
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +115,7 @@ def route_with_embedding(headline: str, body: str, embedding: list[float]) -> di
 
     if route_to_existing:
         action = "updated"
-        narrative = _update_narrative(best_narrative, embedding, headline, full_text)
+        narrative = _update_narrative(best_narrative, embedding, headline, full_text, best_distance)
     else:
         action = "created"
         narrative = _create_narrative(embedding, headline, full_text)
@@ -100,13 +142,10 @@ def _update_narrative(
     story_embedding: list[float],
     headline: str,
     full_text: str,
+    distance: float = 0.2,
 ) -> NarrativeDirection:
-    scores = score_story(
-        story_text=full_text,
-        narrative_description=narrative.description,
-        existing_surprise=narrative.current_surprise,
-        existing_impact=narrative.current_impact,
-    )
+    # Heuristic scorer — instant, no network call
+    scores = _heuristic_score(headline, full_text, distance)
 
     now = time.time()
     # Capture event_count BEFORE add_headline increments it (needed for blend)
@@ -129,12 +168,8 @@ def _create_narrative(
     full_text: str,
 ) -> NarrativeDirection:
     label = label_narrative(full_text)
-    scores = score_story(
-        story_text=full_text,
-        narrative_description=label["description"],
-        existing_surprise=None,
-        existing_impact=None,
-    )
+    # Heuristic scores for new narratives: distance = threshold (boundary case)
+    scores = _heuristic_score(headline, full_text, NEW_NARRATIVE_THRESHOLD)
 
     now = time.time()
     narrative = NarrativeDirection(

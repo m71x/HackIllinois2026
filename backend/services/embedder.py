@@ -62,7 +62,7 @@ def _get_modal_cls():
     if _modal_cls is None and not _use_local:
         try:
             import modal
-            _modal_cls = modal.Cls.lookup(settings.modal_app_name, "Embedder")  # type: ignore[attr-defined]
+            _modal_cls = modal.Cls.from_name(settings.modal_app_name, "Embedder")
             logger.info("[embedder] Connected to Modal Embedder (%s)", settings.modal_app_name)
         except Exception as exc:
             _use_local = True

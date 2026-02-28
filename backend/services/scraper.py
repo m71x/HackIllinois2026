@@ -101,16 +101,126 @@ class ScrapeParams:
 
     dry_run: bool = False
 
-    # RSS feed URLs — no API key needed
+    # RSS feed URLs — no API key needed, no rate limits.
+    # Fetched concurrently so total scrape time ≈ slowest single feed.
     rss_feeds: list[str] = field(default_factory=lambda: [
-        "https://feeds.reuters.com/reuters/businessNews",
+        # ── CNBC (reliable, no paywall) ───────────────────────────────────────
+        "https://www.cnbc.com/id/10000664/device/rss/rss.html",   # Finance
+        "https://www.cnbc.com/id/10001147/device/rss/rss.html",   # Business
+        "https://www.cnbc.com/id/15839135/device/rss/rss.html",   # Economy
+        "https://www.cnbc.com/id/20910258/device/rss/rss.html",   # Markets
+        "https://www.cnbc.com/id/10000115/device/rss/rss.html",   # Earnings
+        "https://www.cnbc.com/id/15839069/device/rss/rss.html",   # Investing
+        "https://www.cnbc.com/id/100003114/device/rss/rss.html",  # US News
+        "https://www.cnbc.com/id/10000108/device/rss/rss.html",   # World
+        # ── BBC ──────────────────────────────────────────────────────────────
         "https://feeds.bbci.co.uk/news/business/rss.xml",
-        "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml",
-        "https://feeds.reuters.com/reuters/topNews",
-        "https://www.cnbc.com/id/10000664/device/rss/rss.html", # CNBC Finance
-        "https://www.cnbc.com/id/10001147/device/rss/rss.html", # CNBC Business
-        "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml",      # WSJ Business
-        "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",        # WSJ Markets
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://feeds.bbci.co.uk/news/technology/rss.xml",
+        "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+        # ── Yahoo Finance ────────────────────────────────────────────────────
+        "https://finance.yahoo.com/news/rssindex",
+        # ── Investopedia ─────────────────────────────────────────────────────
+        "https://www.investopedia.com/feedbuilder/feed/getfeed/?feedName=rss_headline",
+        # ── Federal Reserve / Central Banks ──────────────────────────────────
+        "https://www.federalreserve.gov/feeds/press_all.xml",
+        "https://www.ecb.europa.eu/rss/press.html",
+        # ── Energy & Commodities ─────────────────────────────────────────────
+        "https://oilprice.com/rss/main",
+        "https://www.eia.gov/rss/news.xml",
+        "https://www.kitco.com/rss/news/",
+        # ── Crypto / Digital Assets ──────────────────────────────────────────
+        "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "https://cointelegraph.com/rss",
+        "https://decrypt.co/feed",
+        "https://bitcoinmagazine.com/feed",
+        # ── Tech / AI ────────────────────────────────────────────────────────
+        "https://techcrunch.com/feed/",
+        "https://www.theverge.com/rss/index.xml",
+        # ── Business / Finance ───────────────────────────────────────────────
+        "https://fortune.com/feed",
+        "https://www.axios.com/feeds/feed.rss",
+        "https://www.thestreet.com/rss/",
+        "https://www.benzinga.com/feeds/",
+        "https://abcnews.go.com/abcnews/businessheadlines",
+        "https://feeds.nbcnews.com/nbcnews/public/business",
+        "https://www.dw.com/en/rss/business/rss.xml",
+        "https://www.aljazeera.com/xml/rss/all.xml",
+        # ── Reddit financial communities (high-volume, no auth) ───────────────
+        "https://www.reddit.com/r/investing/.rss",
+        "https://www.reddit.com/r/stocks/.rss",
+        "https://www.reddit.com/r/Economics/.rss",
+        "https://www.reddit.com/r/wallstreetbets/.rss",
+        "https://www.reddit.com/r/finance/.rss",
+        "https://www.reddit.com/r/StockMarket/.rss",
+        "https://www.reddit.com/r/options/.rss",
+        "https://www.reddit.com/r/SecurityAnalysis/.rss",
+        "https://www.reddit.com/r/MacroEconomics/.rss",
+        "https://www.reddit.com/r/CryptoCurrency/.rss",
+        "https://www.reddit.com/r/financialindependence/.rss",
+        "https://www.reddit.com/r/ValueInvesting/.rss",
+        "https://www.reddit.com/r/algotrading/.rss",
+        "https://www.reddit.com/r/economy/.rss",
+        "https://www.reddit.com/r/personalfinance/.rss",
+        # ── Hacker News (finance / AI / startup news) ────────────────────────
+        "https://news.ycombinator.com/rss",
+        # ── Google News — macro / monetary policy (50-100 per query) ─────────
+        "https://news.google.com/rss/search?q=federal+reserve+interest+rates&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=inflation+CPI+consumer+prices&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=GDP+economic+growth+recession&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=jobs+report+unemployment+payroll&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=central+bank+monetary+policy+rate+hike&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=bond+yield+treasury+debt+deficit&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=dollar+index+forex+currency+exchange&hl=en-US&gl=US&ceid=US:en",
+        # ── Google News — equity markets ──────────────────────────────────────
+        "https://news.google.com/rss/search?q=stock+market+earnings+S%26P500&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Nasdaq+Dow+Jones+index+rally&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=earnings+report+quarterly+results+EPS&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=IPO+SPAC+merger+acquisition+deal&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=short+selling+hedge+fund+activist+investor&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=dividend+buyback+stock+split+shareholder&hl=en-US&gl=US&ceid=US:en",
+        # ── Google News — banking & credit ────────────────────────────────────
+        "https://news.google.com/rss/search?q=banking+financial+crisis+risk&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=bank+failure+credit+risk+default&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=JPMorgan+Goldman+Sachs+Morgan+Stanley+bank&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=fintech+payments+digital+banking+neobank&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=credit+card+debt+consumer+lending+loan&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=SEC+FDIC+OCC+banking+regulation+enforcement&hl=en-US&gl=US&ceid=US:en",
+        # ── Google News — big tech ────────────────────────────────────────────
+        "https://news.google.com/rss/search?q=Apple+AAPL+iPhone+earnings+revenue&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Microsoft+MSFT+Azure+cloud+AI+earnings&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Nvidia+NVDA+GPU+AI+chip+earnings&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Google+Alphabet+GOOGL+search+AI+revenue&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Amazon+AMZN+AWS+ecommerce+earnings&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Meta+Facebook+Instagram+advertising+revenue&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Tesla+TSLA+EV+electric+vehicle+Musk&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=AI+artificial+intelligence+regulation+model&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=semiconductor+chip+TSMC+Intel+foundry&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=antitrust+big+tech+regulation+monopoly&hl=en-US&gl=US&ceid=US:en",
+        # ── Google News — energy & commodities ───────────────────────────────
+        "https://news.google.com/rss/search?q=oil+energy+commodities+OPEC+crude&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=natural+gas+LNG+energy+crisis+pipeline&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=gold+silver+copper+precious+metals+mining&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=renewable+energy+solar+wind+climate+ESG&hl=en-US&gl=US&ceid=US:en",
+        # ── Google News — crypto ──────────────────────────────────────────────
+        "https://news.google.com/rss/search?q=bitcoin+BTC+price+ETF+crypto&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=ethereum+DeFi+stablecoin+blockchain+Web3&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=crypto+regulation+SEC+CFTC+exchange&hl=en-US&gl=US&ceid=US:en",
+        # ── Google News — geopolitics & trade ────────────────────────────────
+        "https://news.google.com/rss/search?q=geopolitical+sanctions+trade+war+tariff&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=China+economy+trade+tariff+Xi+Jinping&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Europe+eurozone+ECB+recession+economy&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Russia+Ukraine+war+sanctions+commodity&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=supply+chain+semiconductor+shortage+reshoring&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Middle+East+conflict+oil+supply+geopolitical&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=India+economy+rupee+growth+Modi&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Japan+BOJ+yen+yield+curve+economy&hl=en-US&gl=US&ceid=US:en",
+        # ── Google News — real estate & housing ───────────────────────────────
+        "https://news.google.com/rss/search?q=real+estate+mortgage+housing+market+prices&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=commercial+real+estate+office+REIT+crisis&hl=en-US&gl=US&ceid=US:en",
+        # ── Google News — emerging markets ────────────────────────────────────
+        "https://news.google.com/rss/search?q=emerging+markets+currency+forex+devaluation&hl=en-US&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=private+equity+venture+capital+startup+funding&hl=en-US&gl=US&ceid=US:en",
     ])
 
 
@@ -311,6 +421,8 @@ def scrape_rss(params: ScrapeParams) -> list[RawStory]:
     Fetch headlines from public RSS feeds (Reuters, BBC, NYT, etc.).
 
     No API key required. No rate limits. Returns real live headlines.
+    Feeds are fetched concurrently (ThreadPoolExecutor) so 90+ feeds
+    complete in ~5-10 s instead of 90-180 s sequentially.
     """
     try:
         import feedparser
@@ -318,15 +430,22 @@ def scrape_rss(params: ScrapeParams) -> list[RawStory]:
         logger.warning("feedparser not installed. Run: pip install feedparser")
         return []
 
-    since = datetime.now(timezone.utc) - timedelta(minutes=params.lookback_minutes)
-    stories = []
+    from calendar import timegm
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    for feed_url in params.rss_feeds:
+    since = datetime.now(timezone.utc) - timedelta(minutes=params.lookback_minutes)
+
+    def _fetch_one(feed_url: str) -> list[RawStory]:
+        feed_stories: list[RawStory] = []
         try:
             feed = feedparser.parse(feed_url)
-            feed_name = feed.feed.get("title", feed_url.split("/")[2]) if feed.feed else feed_url.split("/")[2]
+            feed_name = (
+                feed.feed.get("title", feed_url.split("/")[2])
+                if feed.feed
+                else feed_url.split("/")[2]
+            )
 
-            for entry in feed.entries[:params.max_per_source]:
+            for entry in feed.entries[: params.max_per_source]:
                 headline = (entry.get("title") or "").strip()
                 body = (entry.get("summary") or entry.get("description") or "").strip()
 
@@ -335,10 +454,10 @@ def scrape_rss(params: ScrapeParams) -> list[RawStory]:
 
                 # Parse published timestamp
                 published_at = time.time()
-                if hasattr(entry, "published_parsed") and entry.published_parsed:
+                raw_pp = getattr(entry, "published_parsed", None)
+                if raw_pp:
                     try:
-                        from calendar import timegm
-                        published_at = timegm(entry.published_parsed)
+                        published_at = float(timegm(raw_pp))
                     except Exception:
                         pass
 
@@ -346,20 +465,27 @@ def scrape_rss(params: ScrapeParams) -> list[RawStory]:
                 if datetime.fromtimestamp(published_at, tz=timezone.utc) < since:
                     continue
 
-                stories.append(RawStory(
+                link = entry.get("link", "")
+                feed_stories.append(RawStory(
                     headline=headline,
                     body=body,
                     source=f"rss:{feed_name}",
-                    url=entry.get("link", ""),
+                    url=link if isinstance(link, str) else "",
                     published_at=published_at,
                 ))
 
-            logger.info(f"RSS [{feed_name}]: fetched {len([s for s in stories if feed_name in s.source])} entries")
+            logger.debug("RSS [%s]: %d entries within window", feed_name, len(feed_stories))
+        except Exception as exc:
+            logger.error("RSS feed failed [%s]: %s", feed_url, exc)
+        return feed_stories
 
-        except Exception as e:
-            logger.error(f"RSS feed failed [{feed_url}]: {e}")
+    stories: list[RawStory] = []
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        futures = {pool.submit(_fetch_one, url): url for url in params.rss_feeds}
+        for future in as_completed(futures):
+            stories.extend(future.result())
 
-    logger.info(f"RSS total: {len(stories)} stories from {len(params.rss_feeds)} feeds")
+    logger.info("RSS total: %d stories from %d feeds", len(stories), len(params.rss_feeds))
     return stories
 
 

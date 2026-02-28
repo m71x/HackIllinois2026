@@ -92,7 +92,7 @@ class ScrapeRequest(BaseModel):
     Controls a single scrape-and-ingest run.
     """
     lookback_minutes: int = Field(default=60, ge=1, le=10080)
-    max_per_source: int = Field(default=50, ge=1, le=100)
+    max_per_source: int = Field(default=50, ge=1, le=500)
     sources: list[str] = Field(default=["newsapi", "twitter"])
     news_query: Optional[str] = None
     twitter_query: Optional[str] = None
@@ -115,6 +115,21 @@ class ScrapeRunResult(BaseModel):
     buffer_mode: bool = False
     buffer_size: Optional[int] = None
     stories_preview: Optional[list[dict]] = None
+
+
+@router.post("/bulk")
+async def bulk_ingest_endpoint():
+    """
+    Trigger a background bulk ingest: 72 h lookback, 300 stories/feed, RSS-only.
+    Returns immediately; progress is visible in server logs and SSE stream.
+    """
+    try:
+        from services.pipeline import bulk_ingest
+        asyncio.create_task(bulk_ingest())
+        return {"status": "queued", "message": "Bulk ingest started in background"}
+    except Exception as exc:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/scrape", response_model=ScrapeRunResult)

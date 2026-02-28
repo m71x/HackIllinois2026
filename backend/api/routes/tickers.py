@@ -57,7 +57,6 @@ def _narrative_to_dict(narrative, distance: float) -> dict:
         "current_surprise": narrative.current_surprise,
         "current_impact": narrative.current_impact,
         "event_count": narrative.event_count,
-        "is_active": narrative.is_active,
     }
 
 
@@ -149,8 +148,6 @@ async def relate_tickers(req: RelateRequest):
 
         narratives = []
         for narrative, distance in nearest:
-            if req.active_only and not narrative.is_active:
-                continue
             narratives.append(_narrative_to_dict(narrative, distance))
 
         results.append({
@@ -298,8 +295,6 @@ async def get_ticker(
 
     narratives = []
     for narrative, distance in nearest:
-        if active_only and not narrative.is_active:
-            continue
         narratives.append(_narrative_to_dict(narrative, distance))
 
     return {

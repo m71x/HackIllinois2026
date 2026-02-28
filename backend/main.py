@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import json
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -12,26 +13,79 @@ from db import vector_store
 from core.config import settings
 from core.state import pipeline_stats, sse_subscribers
 
+_startup_log = logging.getLogger("nexus.startup")
+
+
+async def _check_modal_status():
+    """Probe Modal at startup and log a clear status line."""
+    try:
+        import modal
+        cls = modal.Cls.from_name(settings.modal_app_name, "Embedder")
+        loop = asyncio.get_event_loop()
+
+        # hydrate() validates the deployment exists on Modal's servers.
+        # It's a lightweight metadata fetch — no inference is run.
+        if asyncio.iscoroutinefunction(cls.hydrate):
+            await cls.hydrate()
+        else:
+            await loop.run_in_executor(None, cls.hydrate)
+
+        # Pre-warm the embedder singleton so the first call skips the lookup
+        from services import embedder as _emb
+        _emb._modal_cls = cls
+        _emb._use_local = False
+
+        _startup_log.info(
+            "┌─ Modal Embedder  ✓  CONNECTED\n"
+            "│  App  : %s\n"
+            "│  Class: Embedder  (GPU: T4)\n"
+            "└─ All embeddings will run on Modal GPU",
+            settings.modal_app_name,
+        )
+    except Exception as exc:
+        _startup_log.warning(
+            "┌─ Modal Embedder  ✗  OFFLINE\n"
+            "│  Reason : %s\n"
+            "└─ Falling back to local sentence-transformers (CPU)",
+            exc,
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan handler for startup/shutdown events."""
-    # ---- startup ----
+    # ── 1. Modal connectivity check ──────────────────────────────────────────
+    await _check_modal_status()
+
+    # ── 2. Start background polling pipeline ─────────────────────────────────
     if settings.auto_start_pipeline:
         try:
             from services.pipeline import start_pipeline
             await start_pipeline()
         except ImportError:
-            pass  # Pipeline service not available
+            pass
+
+    # ── 3. Startup bulk ingest (background task — doesn't block HTTP) ────────
+    if settings.bulk_ingest_on_startup:
+        try:
+            from services.pipeline import bulk_ingest
+            asyncio.create_task(bulk_ingest())
+            _startup_log.info(
+                "Bulk ingest task queued — %dh lookback, %d max/feed, RSS only",
+                settings.bulk_ingest_lookback_hours,
+                settings.bulk_ingest_max_per_source,
+            )
+        except ImportError:
+            pass
 
     yield
 
-    # ---- shutdown ----
+    # ── shutdown ─────────────────────────────────────────────────────────────
     try:
         from services.pipeline import stop_pipeline
         await stop_pipeline()
     except ImportError:
-        pass  # Pipeline service not available
+        pass
 
 
 app = FastAPI(title="Real-World Model Risk Engine", lifespan=lifespan)
@@ -65,6 +119,18 @@ except ImportError:
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/modal/status")
+def modal_status():
+    """Report whether the Modal GPU embedder is connected or falling back to local CPU."""
+    from services import embedder as _emb
+    connected = (not _emb._use_local) and (_emb._modal_cls is not None)
+    return {
+        "connected": connected,
+        "backend": "modal_gpu" if connected else "local_cpu",
+        "modal_app": settings.modal_app_name if connected else None,
+    }
 
 
 @app.get("/api/pipeline/stats")

@@ -614,19 +614,20 @@ function omnibarAutocomplete() {
 
 function omnibarSelect(symbol) {
   document.getElementById("search-input").value = symbol;
-  omnibarSubmit();
+  omnibarSubmit(symbol);
 }
 
-async function omnibarSubmit() {
+async function omnibarSubmit(directSymbol) {
   const input = document.getElementById("search-input");
   const resDiv = document.getElementById("search-results");
-  let symbol = input.value.trim().toUpperCase();
 
-  // If an arrow-key-highlighted suggestion exists, use that instead
-  const active = document.querySelector("#search-results .omnibar-suggestion.active");
-  if (active && active.dataset.symbol) symbol = active.dataset.symbol;
+  // Prefer the directly-passed symbol; fall back to reading the input
+  let symbol = directSymbol
+    || (document.querySelector("#search-results .omnibar-suggestion.active")?.dataset.symbol)
+    || input.value.trim().toUpperCase();
 
   if (!symbol) return;
+  symbol = symbol.trim().toUpperCase();
 
   // Validate format: 1-5 uppercase letters, optional dot suffix (BRK.B)
   if (!/^[A-Z]{1,5}(\.[A-Z])?$/.test(symbol)) {
@@ -643,81 +644,273 @@ async function omnibarSubmit() {
     let result;
 
     if (isMockMode) {
-      const mock = MOCK_TICKER_NARRATIVES[symbol];
-      if (!mock) {
+      result = _buildMockTickerResult(symbol);
+      if (!result) {
         resDiv.innerHTML = `<div class="omnibar-no-match">
           <i class="ph ph-warning-circle"></i> No data found for ticker <strong>${symbol}</strong>
         </div>`;
         return;
       }
-      const matchedNarratives = mock.ids.map((id, i) => {
-        const n = MOCK_DATA.narratives.find(n => n.id === id);
-        if (!n) return null;
-        return {
-          id: n.id, name: n.name, description: n.description,
-          distance: 0.15 + i * 0.08, similarity: 0.92 - i * 0.04,
-          model_risk: n.model_risk, current_surprise: n.current_surprise,
-          current_impact: n.current_impact, event_count: n.event_count, is_active: true,
-        };
-      }).filter(Boolean);
-      result = {
-        ticker: symbol, company_name: mock.company_name,
-        sector: mock.sector, industry: mock.industry,
-        narratives: matchedNarratives,
-      };
     } else {
-      const res = await fetch(`${API}/tickers/${encodeURIComponent(symbol)}?n_results=10`);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        resDiv.innerHTML = `<div class="omnibar-no-match">
-          <i class="ph ph-warning-circle"></i> ${escapeHtml(err.detail || `Ticker '${symbol}' not found`)}
-        </div>`;
-        return;
+      try {
+        const res = await fetch(`${API}/tickers/${encodeURIComponent(symbol)}?n_results=10`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          resDiv.innerHTML = `<div class="omnibar-no-match">
+            <i class="ph ph-warning-circle"></i> ${escapeHtml(err.detail || `Ticker '${symbol}' not found`)}
+          </div>`;
+          return;
+        }
+        result = await res.json();
+      } catch (_netErr) {
+        // Backend unreachable — fall back to mock
+        isMockMode = true;
+        result = _buildMockTickerResult(symbol);
+        if (!result) {
+          resDiv.innerHTML = `<div class="omnibar-no-match">
+            <i class="ph ph-warning-circle"></i> No data found for ticker <strong>${symbol}</strong>
+          </div>`;
+          return;
+        }
       }
-      result = await res.json();
     }
 
-    // Also activate the narrative panel ticker filter
-    tickerFilterActive = true;
-    tickerFilterData = result;
-    document.getElementById("ticker-input").value = symbol;
-    renderTickerFilter(result);
-
-    // Render results in omnibar dropdown
-    let html = `<div class="omnibar-ticker-result">
-      <div class="omnibar-company-header">
-        <span class="ticker-symbol-badge">${result.ticker}</span>
-        <div>
-          <div class="omnibar-company-title">${escapeHtml(result.company_name)}</div>
-          <div class="omnibar-company-meta">${result.sector || "—"} · ${result.industry || "—"}</div>
-        </div>
-      </div>`;
-
-    if (result.narratives.length === 0) {
-      html += `<div class="omnibar-empty-narratives">No related narratives found</div>`;
-    } else {
-      html += `<div class="omnibar-narrative-list">`;
-      html += result.narratives.map((n, i) => {
-        const simPct = ((n.similarity ?? 0) * 100).toFixed(0);
-        return `<div class="search-result" onclick="openNarrativeModal('${n.id}')">
-          <strong>${i + 1}. ${escapeHtml(n.name)}</strong>
-          <div style="display:flex; justify-content:space-between; margin-top:0.4rem;">
-            <span class="distance">Match: <span class="text-accent-cyan">${simPct}%</span></span>
-            <span class="data-number" style="color:${riskColor(n.model_risk)}">Rsk: ${(n.model_risk ?? 0).toFixed(2)}</span>
-          </div>
-        </div>`;
-      }).join("");
-      html += `</div>`;
-    }
-
-    html += `</div>`;
-    resDiv.innerHTML = html;
+    // Dismiss the dropdown & open the full ticker analysis window
+    omnibarDismiss();
+    openTickerAnalysis(result);
 
   } catch (e) {
     console.error("Omnibar ticker search failed:", e);
     resDiv.innerHTML = `<div class="omnibar-no-match">
       <i class="ph ph-warning-circle"></i> Search failed — check your connection
     </div>`;
+  }
+}
+
+/** Build a mock result object from MOCK_TICKER_NARRATIVES (returns null if not found). */
+function _buildMockTickerResult(symbol) {
+  const mock = MOCK_TICKER_NARRATIVES[symbol];
+  if (!mock) return null;
+  const matchedNarratives = mock.ids.map((id, i) => {
+    const n = MOCK_DATA.narratives.find(n => n.id === id);
+    if (!n) return null;
+    return {
+      id: n.id, name: n.name, description: n.description,
+      distance: 0.15 + i * 0.08, similarity: 0.92 - i * 0.04,
+      model_risk: n.model_risk, current_surprise: n.current_surprise,
+      current_impact: n.current_impact, event_count: n.event_count, is_active: true,
+    };
+  }).filter(Boolean);
+  return {
+    ticker: symbol, company_name: mock.company_name,
+    sector: mock.sector, industry: mock.industry,
+    narratives: matchedNarratives,
+  };
+}
+
+// ── Ticker Analysis Window ──────────────────────────────────────────────
+let _tickerAnalysisChart = null;
+
+function openTickerAnalysis(result) {
+  // Remove any previous ticker-analysis overlay
+  const old = document.getElementById("ticker-analysis-overlay");
+  if (old) old.remove();
+  if (_tickerAnalysisChart) { _tickerAnalysisChart.destroy(); _tickerAnalysisChart = null; }
+
+  // Also activate the narrative panel ticker filter
+  tickerFilterActive = true;
+  tickerFilterData = result;
+  const tickerInput = document.getElementById("ticker-input");
+  if (tickerInput) tickerInput.value = result.ticker;
+  renderTickerFilter(result);
+
+  const narrs = result.narratives || [];
+
+  // Compute aggregate stats
+  const avgRisk = narrs.length ? narrs.reduce((s, n) => s + (n.model_risk ?? 0), 0) / narrs.length : 0;
+  const maxRisk = narrs.length ? Math.max(...narrs.map(n => n.model_risk ?? 0)) : 0;
+  const avgSim  = narrs.length ? narrs.reduce((s, n) => s + (n.similarity ?? 0), 0) / narrs.length : 0;
+  const totalEvents = narrs.reduce((s, n) => s + (n.event_count ?? 0), 0);
+
+  // Build the overlay HTML
+  const overlay = document.createElement("div");
+  overlay.id = "ticker-analysis-overlay";
+  overlay.className = "ticker-analysis-overlay";
+  overlay.innerHTML = `
+    <div class="ticker-analysis-backdrop"></div>
+    <div class="ticker-analysis-window glass-panel">
+      <button class="modal-close-btn ticker-analysis-close" aria-label="Close"><i class="ph ph-x"></i></button>
+
+      <!-- Header -->
+      <div class="ta-header">
+        <div class="ta-badge-row">
+          <span class="ta-ticker-badge">${escapeHtml(result.ticker)}</span>
+          <span class="ta-sector-tag">${escapeHtml(result.sector || "—")}</span>
+          <span class="ta-sector-tag">${escapeHtml(result.industry || "—")}</span>
+        </div>
+        <h2 class="ta-title">${escapeHtml(result.company_name)}</h2>
+        <p class="ta-subtitle">Narrative exposure analysis via vector similarity</p>
+      </div>
+
+      <!-- Stats Row -->
+      <div class="ta-stats-row">
+        <div class="ta-stat-card">
+          <span class="ta-stat-label">Matched Narratives</span>
+          <span class="ta-stat-value text-accent-cyan">${narrs.length}</span>
+        </div>
+        <div class="ta-stat-card">
+          <span class="ta-stat-label">Avg Risk Score</span>
+          <span class="ta-stat-value" style="color:${riskColor(avgRisk)}">${avgRisk.toFixed(2)}</span>
+        </div>
+        <div class="ta-stat-card">
+          <span class="ta-stat-label">Max Risk</span>
+          <span class="ta-stat-value" style="color:${riskColor(maxRisk)}">${maxRisk.toFixed(2)}</span>
+        </div>
+        <div class="ta-stat-card">
+          <span class="ta-stat-label">Avg Similarity</span>
+          <span class="ta-stat-value text-accent-cyan">${(avgSim * 100).toFixed(0)}%</span>
+        </div>
+        <div class="ta-stat-card">
+          <span class="ta-stat-label">Total Events</span>
+          <span class="ta-stat-value">${totalEvents}</span>
+        </div>
+      </div>
+
+      <!-- Two-column body -->
+      <div class="ta-body">
+        <!-- Left: chart -->
+        <div class="ta-chart-section card-inner">
+          <h3 class="ta-section-title"><i class="ph ph-chart-bar"></i> Risk × Similarity</h3>
+          <div class="ta-chart-wrap"><canvas id="ta-chart"></canvas></div>
+        </div>
+        <!-- Right: narrative list -->
+        <div class="ta-narratives-section">
+          <h3 class="ta-section-title"><i class="ph ph-list-bullets"></i> Related Narratives</h3>
+          <div class="ta-narrative-list custom-scrollbar">
+            ${narrs.length === 0 ? '<div class="ta-empty">No related narratives found</div>' :
+              narrs.sort((a, b) => (b.similarity ?? 0) - (a.similarity ?? 0)).map((n, i) => {
+                const simPct = ((n.similarity ?? 0) * 100).toFixed(0);
+                return `
+                <div class="ta-narrative-card" data-id="${n.id}">
+                  <div class="ta-narrative-rank">${i + 1}</div>
+                  <div class="ta-narrative-info">
+                    <div class="ta-narrative-name">${escapeHtml(n.name)}</div>
+                    <div class="ta-narrative-desc">${escapeHtml(n.description || "")}</div>
+                    <div class="ta-narrative-metrics">
+                      <span class="ta-metric"><span class="ta-metric-label">Match</span> <span class="text-accent-cyan">${simPct}%</span></span>
+                      <span class="ta-metric"><span class="ta-metric-label">Risk</span> <span style="color:${riskColor(n.model_risk)}">${(n.model_risk ?? 0).toFixed(2)}</span></span>
+                      <span class="ta-metric"><span class="ta-metric-label">Surprise</span> <span style="color:${riskColor(n.current_surprise)}">${(n.current_surprise ?? 0).toFixed(2)}</span></span>
+                      <span class="ta-metric"><span class="ta-metric-label">Impact</span> <span style="color:${riskColor(n.current_impact)}">${(n.current_impact ?? 0).toFixed(2)}</span></span>
+                      <span class="ta-metric"><span class="ta-metric-label">Events</span> ${n.event_count ?? 0}</span>
+                    </div>
+                  </div>
+                  <div class="ta-sim-bar-wrap">
+                    <div class="ta-sim-bar"><div class="ta-sim-bar-fill" style="width:${simPct}%"></div></div>
+                  </div>
+                </div>`;
+              }).join("")
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  // Wire close handlers
+  const closeBtn = overlay.querySelector(".ticker-analysis-close");
+  const backdrop = overlay.querySelector(".ticker-analysis-backdrop");
+  const closeFn = () => {
+    overlay.classList.add("closing");
+    setTimeout(() => overlay.remove(), 250);
+    if (_tickerAnalysisChart) { _tickerAnalysisChart.destroy(); _tickerAnalysisChart = null; }
+  };
+  closeBtn.addEventListener("click", closeFn);
+  backdrop.addEventListener("click", closeFn);
+  document.addEventListener("keydown", function _taEsc(e) {
+    if (e.key === "Escape" && document.getElementById("ticker-analysis-overlay")) {
+      closeFn();
+      document.removeEventListener("keydown", _taEsc);
+    }
+  });
+
+  // Wire narrative card clicks → open narrative detail modal
+  overlay.querySelectorAll(".ta-narrative-card").forEach(card => {
+    card.addEventListener("click", () => {
+      openNarrativeModal(card.dataset.id);
+    });
+  });
+
+  // Render the chart (bubble chart: x = similarity, y = risk, size = events)
+  if (narrs.length > 0) {
+    requestAnimationFrame(() => {
+      const ctx = document.getElementById("ta-chart")?.getContext("2d");
+      if (!ctx) return;
+      _tickerAnalysisChart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: narrs.map(n => n.name.length > 18 ? n.name.slice(0, 18) + "…" : n.name),
+          datasets: [
+            {
+              label: "Risk Score",
+              data: narrs.map(n => n.model_risk ?? 0),
+              backgroundColor: narrs.map(n => {
+                const r = n.model_risk ?? 0;
+                if (r >= 0.66) return "rgba(244, 63, 94, 0.7)";
+                if (r >= 0.33) return "rgba(245, 158, 11, 0.6)";
+                return "rgba(16, 185, 129, 0.6)";
+              }),
+              borderColor: narrs.map(n => {
+                const r = n.model_risk ?? 0;
+                if (r >= 0.66) return "#f43f5e";
+                if (r >= 0.33) return "#f59e0b";
+                return "#10b981";
+              }),
+              borderWidth: 1.5,
+              borderRadius: 4,
+              order: 2,
+            },
+            {
+              label: "Similarity",
+              data: narrs.map(n => n.similarity ?? 0),
+              type: "line",
+              borderColor: "#00f0ff",
+              backgroundColor: "rgba(0, 240, 255, 0.1)",
+              borderWidth: 2,
+              pointRadius: 5,
+              pointBackgroundColor: "#00f0ff",
+              pointBorderColor: "#0a0f1c",
+              pointBorderWidth: 2,
+              tension: 0.3,
+              fill: true,
+              order: 1,
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: {
+              labels: { color: "#8b949e", font: { size: 11 }, usePointStyle: true, pointStyle: "rectRounded" }
+            }
+          },
+          scales: {
+            y: {
+              min: 0, max: 1,
+              grid: { color: "rgba(255,255,255,0.04)" },
+              ticks: { color: "#8b949e", font: { size: 10 } }
+            },
+            x: {
+              grid: { display: false },
+              ticks: { color: "#8b949e", font: { size: 10 }, maxRotation: 45, minRotation: 25 }
+            }
+          }
+        }
+      });
+    });
   }
 }
 

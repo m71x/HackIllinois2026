@@ -5,12 +5,8 @@ from typing import Optional
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=("../.env", ".env"), extra="ignore")
 
-    # Modal (embedding only — LLM is served by Cerebras)
+    # Modal (GPU embeddings)
     modal_app_name: str = "model-risk-llm"   # must match APP_NAME in modal_app.py
-
-    # Cerebras (LLM inference)
-    cerebras_api_key: str = ""
-    cerebras_model: str = "llama3.1-8b"
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_db"
@@ -21,12 +17,17 @@ class Settings(BaseSettings):
     new_narrative_threshold: float = 0.40
 
     # Pipeline — background auto-scrape
-    auto_start_pipeline: bool = False         # set to true to scrape automatically on boot
-    pipeline_num_workers: int = 2
-    poll_interval_seconds: int = 300          # scrape every 5 minutes by default
-    pipeline_lookback_minutes: int = 10       # only pull stories from last 10 min per poll
-    pipeline_max_per_source: int = 30         # max items per source per poll
-    pipeline_sources: list[str] = ["newsapi", "twitter"]
+    auto_start_pipeline: bool = True          # start pipeline on boot
+    pipeline_num_workers: int = 32            # concurrent routing workers
+    poll_interval_seconds: int = 120          # scrape every 2 minutes
+    pipeline_lookback_minutes: int = 30       # pull stories from last 30 min per poll
+    pipeline_max_per_source: int = 100        # max items per RSS feed per poll
+    pipeline_sources: list[str] = ["rss", "newsapi", "twitter"]
+
+    # Startup bulk ingest — pull historical RSS stories once on boot
+    bulk_ingest_on_startup: bool = True
+    bulk_ingest_lookback_hours: int = 168     # reach back 7 days of RSS history
+    bulk_ingest_max_per_source: int = 500     # max items per feed for the bulk pull
 
     # NewsAPI  (newsapi.org — free tier: 100 req/day, 1-month lookback)
     newsapi_key: Optional[str] = None

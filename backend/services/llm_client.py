@@ -1,137 +1,69 @@
 """
-LLM client -- calls the Cerebras API for all inference needs.
+LLM client — fully local, no external API calls.
 
-Set CEREBRAS_API_KEY in .env (or environment) before starting the backend.
-Optionally override the model with CEREBRAS_MODEL (default: llama-3.3-70b).
-
-Three public functions:
-    label_narrative(story_text)     -> {"name": str, "description": str}
-    score_story(...)                -> {"surprise": float, "impact": float}
-    summarize_narrative_context(...)-> str
+All three public functions use fast keyword/heuristic logic:
+    label_narrative(story_text)      -> {"name": str, "description": str}
+    score_story(...)                 -> {"surprise": float, "impact": float}
+    summarize_narrative_context(...) -> str
 """
 
-import json
-import time
-from cerebras.cloud.sdk import Cerebras
-from core.config import settings
-
-
-# Lazy singleton -- created on first use so startup doesn't fail if key is missing.
-_client: Cerebras | None = None
-
-def _get_client() -> Cerebras:
-    global _client
-    if _client is None:
-        if not settings.cerebras_api_key:
-            raise RuntimeError(
-                "CEREBRAS_API_KEY is not set. Add it to .env or the environment."
-            )
-        _client = Cerebras(api_key=settings.cerebras_api_key)
-    return _client
-
-
-def _chat(messages: list[dict], max_tokens: int = 256, temperature: float = 0.1) -> str:
-    """
-    Call Cerebras chat completions with exponential backoff retry (3 attempts).
-    """
-    client = _get_client()
-    for attempt in range(3):
-        try:
-            resp = client.chat.completions.create(
-                model=settings.cerebras_model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
-            return resp.choices[0].message.content or ""
-        except Exception as e:
-            if attempt == 2:
-                # Fall back to empty on final failure
-                print(f"[llm_client] Cerebras call failed after 3 attempts: {e}")
-                return ""
-            time.sleep(2 ** attempt)
-    return ""
-
-
-def _parse_json(raw: str, fallback: dict) -> dict:
-    """Parse JSON from LLM output, with fallback for malformed responses."""
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        start = raw.find("{")
-        end = raw.rfind("}") + 1
-        if start >= 0 and end > start:
-            try:
-                return json.loads(raw[start:end])
-            except json.JSONDecodeError:
-                pass
-    return fallback
-
-
 # ---------------------------------------------------------------------------
-# Prompt constants
+# Topic taxonomy — ordered by specificity (more specific first)
 # ---------------------------------------------------------------------------
 
-_LABEL_PROMPT = """You are a financial risk analyst identifying persistent real-world narrative directions.
+_TOPIC_MAP: list[tuple[frozenset[str], str]] = [
+    (frozenset(["federal reserve", "fomc", "powell", "rate hike", "rate cut",
+                "interest rate", "fed funds"]),                              "Monetary Policy"),
+    (frozenset(["inflation", "cpi", "pce", "consumer price", "price index",
+                "deflation", "stagflation"]),                                "Inflation Dynamics"),
+    (frozenset(["oil", "crude", "opec", "petroleum", "lng", "natural gas",
+                "energy supply"]),                                           "Energy Markets"),
+    (frozenset(["bitcoin", "crypto", "ethereum", "blockchain", "defi",
+                "stablecoin", "nft", "web3"]),                              "Crypto Assets"),
+    (frozenset(["china", "beijing", "tariff", "trade war", "huawei",
+                "xi jinping", "prc"]),                                       "China Trade Tensions"),
+    (frozenset(["bank", "banking", "svb", "fdic", "credit", "lender",
+                "deposit", "bank run"]),                                     "Banking Sector"),
+    (frozenset(["earnings", "revenue", "profit", "eps", "quarterly results",
+                "guidance", "outlook"]),                                     "Corporate Earnings"),
+    (frozenset(["jobs", "unemployment", "payroll", "labor", "hiring",
+                "layoff", "workforce", "nonfarm"]),                         "Labor Market"),
+    (frozenset(["housing", "real estate", "mortgage", "home prices",
+                "reit", "commercial property"]),                             "Real Estate"),
+    (frozenset(["supply chain", "semiconductor", "chip", "shortage",
+                "logistics", "reshoring"]),                                  "Supply Chain"),
+    (frozenset(["ai", "artificial intelligence", "machine learning",
+                "openai", "llm", "generative"]),                            "AI Technology"),
+    (frozenset(["bond", "yield", "treasury", "debt", "deficit",
+                "sovereign", "t-bill"]),                                     "Sovereign Debt"),
+    (frozenset(["recession", "gdp", "growth slowdown", "contraction",
+                "economic outlook"]),                                        "Economic Outlook"),
+    (frozenset(["sanctions", "russia", "ukraine", "war", "conflict",
+                "geopolit", "invasion"]),                                    "Geopolitical Risk"),
+    (frozenset(["dollar", "yen", "euro", "forex", "currency",
+                "exchange rate", "devaluation"]),                            "Currency Markets"),
+    (frozenset(["merger", "acquisition", "ipo", "deal", "buyout",
+                "private equity", "m&a"]),                                   "M&A Activity"),
+    (frozenset(["sec", "regulation", "regulatory", "policy", "congress",
+                "antitrust", "enforcement"]),                                "Regulatory Change"),
+    (frozenset(["climate", "esg", "carbon", "green", "renewable",
+                "sustainability", "net zero"]),                              "Climate Finance"),
+    (frozenset(["stock", "equity", "s&p", "nasdaq", "dow",
+                "market rally", "bull", "bear"]),                            "Equity Markets"),
+    (frozenset(["commodity", "gold", "silver", "copper", "wheat",
+                "agricultural", "futures"]),                                 "Commodities"),
+]
 
-A "narrative direction" is a broad, ongoing real-world theme that can drive market model breakdown.
-Examples:
-  - "Energy supply shock" -- ongoing constraints on energy availability affecting markets
-  - "Regional banking stress" -- deteriorating confidence in mid-size banks
-  - "China trade policy tightening" -- escalating restrictions on China-US trade
-  - "Sovereign debt pressure" -- rising concern about government default risk
-
-A narrative direction is NOT a specific event. It is the underlying story arc.
-
-Given the news story below, identify which narrative direction it belongs to.
-
-Respond with ONLY valid JSON. No commentary. No markdown fences.
-
-{{"name": "<3 to 6 word label>", "description": "<one sentence describing the persistent narrative direction>"}}
-
-News story:
-{story_text}"""
-
-_SCORE_PROMPT = """You are a quantitative financial risk analyst.
-
-Narrative direction: {narrative_description}
-{context_block}
-Score the following news story on two dimensions:
-
-SURPRISE [0.0--1.0]: How unexpected or regime-breaking is this development within the narrative?
-  0.0 = expected continuation already priced in
-  0.5 = moderate escalation, partially surprising
-  1.0 = sudden shock, reversal, or unprecedented development
-
-IMPACT [0.0--1.0]: How economically significant is this event?
-  Event severity (highest -> lowest): sovereign default, bank collapse, military conflict,
-  sanctions, credit crisis, supply chain shutdown, regulatory ban, commodity shock,
-  rate shock, political coup, large-cap earnings, executive departure, minor regulation
-  0.0 = negligible market relevance
-  0.5 = affects one major sector or mid-cap companies
-  1.0 = systemic, multi-sector, global significance
-
-Respond with ONLY valid JSON. No commentary.
-{{"surprise": <float 0.0--1.0>, "impact": <float 0.0--1.0>}}
-
-News story:
-{story_text}"""
-
-_SCORE_CONTEXT_BLOCK = """
-Current narrative state:
-  - Surprise so far: {existing_surprise:.2f}
-  - Impact so far:   {existing_impact:.2f}
-Does this story ESCALATE, CONTINUE, or DE-ESCALATE the narrative?
-"""
-
-_CHAT_PROMPT = """You are a real-world market risk analyst with access to a live narrative database.
-Answer the user's question using only the narrative data provided below.
-Be specific and concise. If no narratives are relevant, say so.
-
-User question: {query}
-
-Relevant narrative directions:
-{narratives_block}"""
+_CRISIS_WORDS = frozenset(["collapse", "crisis", "crash", "fail", "bankrupt",
+                            "panic", "turmoil", "meltdown", "contagion", "seized"])
+_SURGE_WORDS  = frozenset(["surges", "surge", "rally", "soar", "boom",
+                            "skyrocket", "jump", "spike", "record high"])
+_PRESSURE_WORDS = frozenset(["falls", "drops", "decline", "slump", "plunge",
+                              "tumble", "sinks", "contracts", "weakens"])
+_RISK_WORDS   = frozenset(["warn", "risk", "threat", "concern", "fear",
+                            "caution", "alarm", "uncertainty"])
+_TIGHTEN_WORDS = frozenset(["tighten", "hike", "restrict", "sanction",
+                             "ban", "curb", "crackdown", "freeze"])
 
 
 # ---------------------------------------------------------------------------
@@ -140,16 +72,43 @@ Relevant narrative directions:
 
 def label_narrative(story_text: str) -> dict:
     """
-    Generate a name and description for a new narrative direction.
-    Called only when a story doesn't fit any existing narrative.
-    Returns {"name": str, "description": str}.
+    Keyword-based narrative labeler — instant, no network call.
+
+    Finds the dominant financial topic from the taxonomy, then applies a
+    directional modifier based on tone keywords to form a 3-5 word label.
+    The description is the first line of story_text (usually the headline).
     """
-    prompt = _LABEL_PROMPT.format(story_text=story_text[:1500])
-    raw = _chat([{"role": "user", "content": prompt}], max_tokens=256, temperature=0.1)
-    return _parse_json(raw, fallback={
-        "name": "unclassified narrative",
-        "description": story_text[:150],
-    })
+    text = story_text[:600].lower()
+    # First non-empty line is the headline
+    headline = next((ln.strip() for ln in story_text.splitlines() if ln.strip()), story_text[:120])
+
+    # Pick topic with the most keyword matches
+    best_topic = "Market Development"
+    best_score = 0
+    for keywords, topic in _TOPIC_MAP:
+        score = sum(1 for kw in keywords if kw in text)
+        if score > best_score:
+            best_score = score
+            best_topic = topic
+
+    # Directional modifier
+    if any(kw in text for kw in _CRISIS_WORDS):
+        direction = "Crisis"
+    elif any(kw in text for kw in _SURGE_WORDS):
+        direction = "Surge"
+    elif any(kw in text for kw in _PRESSURE_WORDS):
+        direction = "Pressure"
+    elif any(kw in text for kw in _RISK_WORDS):
+        direction = "Risk"
+    elif any(kw in text for kw in _TIGHTEN_WORDS):
+        direction = "Tightening"
+    else:
+        direction = "Shift"
+
+    name = f"{best_topic} {direction}"
+    description = headline[:200] if headline else story_text[:150]
+
+    return {"name": name, "description": description}
 
 
 def score_story(
@@ -159,47 +118,30 @@ def score_story(
     existing_impact: float | None,
 ) -> dict:
     """
-    Score a story for Surprise and Impact within its narrative context.
-    Returns {"surprise": float [0,1], "impact": float [0,1]}.
+    Stub kept for backward compatibility with any callers that haven't been
+    updated yet. Real scoring uses _heuristic_score() in narrative_engine.py.
+    Returns neutral defaults.
     """
-    context_block = ""
-    if existing_surprise is not None and existing_impact is not None:
-        context_block = _SCORE_CONTEXT_BLOCK.format(
-            existing_surprise=existing_surprise,
-            existing_impact=existing_impact,
-        )
-
-    prompt = _SCORE_PROMPT.format(
-        narrative_description=narrative_description,
-        context_block=context_block,
-        story_text=story_text[:1500],
-    )
-    raw = _chat([{"role": "user", "content": prompt}], max_tokens=64, temperature=0.1)
-    scores = _parse_json(raw, fallback={"surprise": 0.3, "impact": 0.3})
-    return {
-        "surprise": max(0.0, min(1.0, float(scores.get("surprise", 0.3)))),
-        "impact": max(0.0, min(1.0, float(scores.get("impact", 0.3)))),
-    }
+    return {"surprise": 0.3, "impact": 0.3}
 
 
 def summarize_narrative_context(narratives: list[dict], query: str) -> str:
     """
-    RAG-style summary: answer a user query using the top-k retrieved narratives.
-    Returns a plain-text prose answer.
+    Template-based context summary — instant, no network call.
+    Returns a structured plain-text answer from the narrative data.
     """
-    lines = []
-    for i, n in enumerate(narratives, 1):
-        headlines = "; ".join((n.get("recent_headlines") or [])[-3:])
-        lines.append(
-            f"{i}. [{n['name']}] risk={n.get('model_risk', 'N/A')}, "
-            f"surprise={n.get('current_surprise', 'N/A')}, "
-            f"impact={n.get('current_impact', 'N/A')}\n"
-            f"   {n['description']}\n"
-            f"   Recent: {headlines}"
-        )
+    if not narratives:
+        return "No relevant narrative directions found for that query."
 
-    prompt = _CHAT_PROMPT.format(
-        query=query,
-        narratives_block="\n\n".join(lines),
-    )
-    return _chat([{"role": "user", "content": prompt}], max_tokens=512, temperature=0.3)
+    lines = [f"Top {len(narratives)} narrative direction(s) related to '{query}':\n"]
+    for i, n in enumerate(narratives, 1):
+        recent = "; ".join((n.get("recent_headlines") or [])[-2:])
+        lines.append(
+            f"{i}. {n['name']}\n"
+            f"   Risk={n.get('model_risk', 'N/A')}  "
+            f"Surprise={n.get('current_surprise', 'N/A')}  "
+            f"Impact={n.get('current_impact', 'N/A')}\n"
+            f"   {n.get('description', '')}\n"
+            f"   Recent: {recent or 'none'}"
+        )
+    return "\n".join(lines)
