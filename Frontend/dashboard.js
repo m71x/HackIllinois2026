@@ -460,39 +460,47 @@ function initMockSSE() {
 // SECTION 6 — Rest of Logic (Search, Modal, Ingest)
 // ============================================================
 
-document.getElementById("search-btn").addEventListener("click", runSearch);
 document.getElementById("search-input").addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+document.getElementById("search-input").addEventListener("input", runSearch);
 
 async function runSearch() {
   const query = document.getElementById("search-input").value.trim().toLowerCase();
   const resDiv = document.getElementById("search-results");
-  if (!query) return;
-
-  resDiv.innerHTML = `<div class="spinner"></div>`;
-  const data = await postJSON("/narratives/search", { query, n_results: 5 });
 
   let results = [];
   if (isMockMode) {
-    // Filter mock data by text match
-    const matches = MOCK_DATA.narratives.filter(n =>
-      n.name.toLowerCase().includes(query) ||
-      n.description.toLowerCase().includes(query)
-    );
+    if (query) {
+      // Filter mock data by text match
+      const matches = MOCK_DATA.narratives.filter(n =>
+        n.name.toLowerCase().includes(query) ||
+        n.description.toLowerCase().includes(query)
+      );
 
-    // Sort relevance arbitrarily for mockup
-    results = matches.map((n, i) => ({
-      narrative: n,
-      similarity: 0.95 - (i * 0.05)
-    }));
-
-    // Fallback if no exact text match (just return top 2 to simulate fuzzy finding)
-    if (results.length === 0) {
-      results = MOCK_DATA.narratives.slice(0, 2).map((n, i) => ({
+      results = matches.map((n, i) => ({
         narrative: n,
-        similarity: 0.65 - (i * 0.10)
+        similarity: 0.95 - (i * 0.05)
       }));
+
+      // Fallback if no exact text match
+      if (results.length === 0) {
+        results = MOCK_DATA.narratives.slice(0, 2).map((n, i) => ({
+          narrative: n,
+          similarity: 0.65 - (i * 0.10)
+        }));
+      }
+    } else {
+      // No query — show all narratives sorted by risk as defaults
+      results = [...MOCK_DATA.narratives]
+        .sort((a, b) => b.model_risk - a.model_risk)
+        .map((n, i) => ({
+          narrative: n,
+          similarity: 1.0 - (i * 0.02)
+        }));
     }
   } else {
+    if (!query) return;
+    resDiv.innerHTML = `<div class="spinner"></div>`;
+    const data = await postJSON("/narratives/search", { query, n_results: 5 });
     results = data.results;
   }
 
@@ -506,6 +514,9 @@ async function runSearch() {
     </div>
   `).join("");
 }
+
+// Show default search results on load
+setTimeout(runSearch, 500);
 
 document.getElementById("ingest-btn").addEventListener("click", async () => {
   const btn = document.getElementById("ingest-btn");
