@@ -347,7 +347,7 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.55rem 2rem;
+  padding: 1rem 2.5rem;
   position: sticky;
   top: 0;
   z-index: 50;
@@ -359,7 +359,7 @@ h3 {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.5rem;
 }
 
 .logo-mark {
@@ -373,10 +373,10 @@ h3 {
 }
 
 .header-titles h1 {
-  font-size: 1.05rem;
-  letter-spacing: 0.08em;
+  font-size: 1.1rem;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  margin-bottom: 0.05rem;
+  margin-bottom: 0.1rem;
   color: var(--text-primary);
 }
 
@@ -384,14 +384,15 @@ h3 {
   font-size: 0.68rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  letter-spacing: 0.07em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.25rem;
 }
 
 .status-pill {
@@ -1503,14 +1504,11 @@ textarea {
 .header-tabs {
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 1.5rem;
 }
 
 .tab-divider {
-  color: rgba(255, 255, 255, 0.15);
-  font-size: 1.1rem;
-  font-weight: 300;
-  user-select: none;
+  display: none;
 }
 
 .tab-btn {

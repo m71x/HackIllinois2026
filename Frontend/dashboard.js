@@ -3949,8 +3949,8 @@ function renderCorrelationMatrix(graphData) {
   ctx.fillRect(0, 0, w, h);
 
   // Layout: labels on left + top, heatmap cells in center
-  const labelWidth = Math.min(140, w * 0.25);
-  const labelHeight = 40;
+  const labelWidth = Math.min(200, w * 0.25);
+  const labelHeight = 80;
   const gridW = w - labelWidth - 20;
   const gridH = h - labelHeight - 20;
   const cellW = gridW / n;
@@ -3969,9 +3969,9 @@ function renderCorrelationMatrix(graphData) {
   ctx.textBaseline = "bottom";
   for (let j = 0; j < n; j++) {
     const x = offsetX + j * cellW + cellW / 2;
-    const label = truncLabel(nodes[j].label || `C${j}`, 12);
+    const label = truncLabel(nodes[j].label || `C${j}`, 14);
     ctx.save();
-    ctx.translate(x, offsetY - 4);
+    ctx.translate(x, offsetY - 8);
     ctx.rotate(-Math.PI / 6);
     ctx.fillText(label, 0, 0);
     ctx.restore();
@@ -3985,7 +3985,7 @@ function renderCorrelationMatrix(graphData) {
   ctx.textBaseline = "middle";
   for (let i = 0; i < n; i++) {
     const y = offsetY + i * cellH + cellH / 2;
-    ctx.fillText(truncLabel(nodes[i].label || `C${i}`, 16), offsetX - 8, y);
+    ctx.fillText(truncLabel(nodes[i].label || `C${i}`, 20), offsetX - 12, y);
   }
 
   // Draw cells
@@ -3997,13 +3997,13 @@ function renderCorrelationMatrix(graphData) {
 
       ctx.fillStyle = _corrColor(val, isLight);
       ctx.beginPath();
-      _roundRect(ctx, x + 1, y + 1, cellW - 2, cellH - 2, 3);
+      _roundRect(ctx, x + 1, y + 1, cellW - 2, cellH - 2, 4);
       ctx.fill();
 
-      // Show value text in cell if cells are large enough
-      if (cellW > 35 && cellH > 22) {
-        ctx.fillStyle = val > 0.6 ? "#fff" : (isLight ? "#334155" : "rgba(255,255,255,0.6)");
-        ctx.font = `700 ${Math.min(12, cellW * 0.3)}px var(--font-mono, monospace)`;
+      // Show value text in cell if cells are large enough and val is meaningful
+      if (cellW > 35 && cellH > 22 && val > 0.05) {
+        ctx.fillStyle = val > 0.6 ? "#fff" : (isLight ? "#334155" : "rgba(255,255,255,0.85)");
+        ctx.font = `600 ${Math.min(11, cellW * 0.35)}px var(--font-mono, monospace)`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(val.toFixed(2), x + cellW / 2, y + cellH / 2);
@@ -4024,7 +4024,7 @@ function renderCorrelationMatrix(graphData) {
 function _corrColor(val, isLight) {
   // Dark: low=dark blue → cyan → amber → red=high
   // 0.0 = deep blue, 0.5 = cyan, 0.75 = amber, 1.0 = red
-  if (val <= 0) return isLight ? "#e2e8f0" : "#1e3a5f";
+  if (val <= 0) return isLight ? "rgba(226, 232, 240, 0.4)" : "rgba(30, 58, 95, 0.25)";
   if (val >= 1) return "#ef4444";
   if (val < 0.35) {
     const t = val / 0.35;
