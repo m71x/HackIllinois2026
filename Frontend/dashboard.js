@@ -3531,3 +3531,346 @@ appendFeedItem = function (result) {
   clearTimeout(_ntIngestDebounce);
   _ntIngestDebounce = setTimeout(_ntRefresh, 1500);
 };
+
+// ============================================================
+// SECTION — Quant Analytics Panel
+// ============================================================
+
+let _corrMatrixData = null;  // cache graph data for correlation matrix
+
+async function computeQuantMetrics() {
+  try {
+    // Fetch all required data in parallel
+    const [histData, riskData, graphData] = await Promise.all([
+      fetchJSON("/risk/history?window=24&resolution=200"),
+      fetchJSON("/risk"),
+      fetchJSON("/narratives/graph"),
+    ]);
+
+    const history = histData.history || [];
+    const breakdown = riskData.breakdown || [];
+
+    // ── 1. Risk Volatility (σ) ──
+    let sigma = 0;
+    if (history.length > 1) {
+      const vals = history.map(h => h.model_risk_index);
+      const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+      const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length - 1);
+      sigma = Math.sqrt(variance);
+    }
+
+    // ── 2. VaR (95%) ── 
+    // 95th percentile of risk readings = sorted desc, take the 5th percentile position
+    let var95 = 0;
+    if (history.length > 0) {
+      const sorted = history.map(h => h.model_risk_index).sort((a, b) => a - b);
+      const idx95 = Math.min(Math.floor(sorted.length * 0.95), sorted.length - 1);
+      var95 = sorted[idx95];
+    }
+
+    // ── 3. Sharpe-like Ratio ──
+    // (mean_risk - baseline) / sigma,  baseline = 0.3 (normal regime)
+    let sharpe = 0;
+    if (history.length > 1 && sigma > 0.001) {
+      const vals = history.map(h => h.model_risk_index);
+      const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+      const baseline = 0.3;
+      sharpe = (mean - baseline) / sigma;
+    }
+
+    // ── 4. Concentration (HHI) ──
+    // Herfindahl–Hirschman Index of narrative risk contributions
+    let hhi = 0;
+    if (breakdown.length > 0) {
+      const totalRisk = breakdown.reduce((s, n) => s + (n.model_risk || 0), 0);
+      if (totalRisk > 0) {
+        hhi = breakdown.reduce((s, n) => {
+          const share = (n.model_risk || 0) / totalRisk;
+          return s + share * share;
+        }, 0);
+      }
+    }
+
+    // ── 5. Risk Velocity ──
+    // Rate of change: Δrisk/Δtime, comparing last 2 hours vs previous 2 hours
+    let velocity = 0;
+    if (history.length >= 4) {
+      const recent = history.slice(-Math.ceil(history.length / 4));
+      const earlier = history.slice(0, Math.ceil(history.length / 4));
+      const recentAvg = recent.reduce((s, h) => s + h.model_risk_index, 0) / recent.length;
+      const earlierAvg = earlier.reduce((s, h) => s + h.model_risk_index, 0) / earlier.length;
+      const deltaT = (recent[recent.length - 1].timestamp - earlier[0].timestamp) / 3600; // hours
+      velocity = deltaT > 0 ? (recentAvg - earlierAvg) / deltaT : 0;
+    }
+
+    // ── 6. Systemic Beta ──
+    // Average inter-cluster similarity from narrative graph edges
+    let beta = 0;
+    const edges = graphData.edges || [];
+    if (edges.length > 0) {
+      beta = edges.reduce((s, e) => s + (e.similarity || 0), 0) / edges.length;
+    }
+
+    // ── Render metrics ──
+    _renderQuantValue("qm-sigma", sigma, sigma > 0.15 ? "high" : sigma > 0.08 ? "medium" : "low");
+    _renderQuantValue("qm-var95", var95, var95 > 0.7 ? "high" : var95 > 0.45 ? "medium" : "low");
+    _renderQuantValue("qm-sharpe", sharpe, Math.abs(sharpe) > 2 ? "high" : Math.abs(sharpe) > 1 ? "medium" : "low", true);
+    _renderQuantValue("qm-hhi", hhi, hhi > 0.5 ? "high" : hhi > 0.25 ? "medium" : "low");
+    _renderQuantValue("qm-velocity", velocity, Math.abs(velocity) > 0.05 ? "high" : Math.abs(velocity) > 0.02 ? "medium" : "low", true);
+    _renderQuantValue("qm-beta", beta, beta > 0.6 ? "high" : beta > 0.4 ? "medium" : "low");
+
+    // Update timestamp
+    const tsEl = document.getElementById("quant-update-ts");
+    if (tsEl) tsEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+
+    // Cache graph data for correlation matrix and render it
+    _corrMatrixData = graphData;
+    renderCorrelationMatrix(graphData);
+
+  } catch (e) {
+    console.error("Quant metrics error:", e);
+  }
+}
+
+function _renderQuantValue(id, value, level, showSign) {
+  const el = document.getElementById(id);
+  if (!el) return;
+
+  const colors = {
+    low: "var(--risk-low)",
+    medium: "var(--risk-medium)",
+    high: "var(--risk-high)",
+  };
+
+  const sign = showSign && value > 0 ? "+" : "";
+  el.textContent = sign + value.toFixed(3);
+  el.style.color = colors[level] || "var(--text-primary)";
+
+  // Subtle pop animation
+  el.style.transform = "scale(1.08)";
+  setTimeout(() => { el.style.transform = "scale(1)"; }, 250);
+}
+
+
+// ============================================================
+// SECTION — Narrative Correlation Matrix (Canvas Heatmap)
+// ============================================================
+
+function renderCorrelationMatrix(graphData) {
+  const canvas = document.getElementById("corr-canvas");
+  const wrap = document.getElementById("corr-matrix-wrap");
+  if (!canvas || !wrap) return;
+
+  const nodes = graphData.nodes || [];
+  const edges = graphData.edges || [];
+
+  if (nodes.length < 2) {
+    const ctx = canvas.getContext("2d");
+    canvas.width = wrap.clientWidth;
+    canvas.height = wrap.clientHeight;
+    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(255,255,255,0.3)";
+    ctx.font = "13px var(--font-mono, monospace)";
+    ctx.textAlign = "center";
+    ctx.fillText("Awaiting cluster data (need ≥2 narratives)...", canvas.width / 2, canvas.height / 2);
+    return;
+  }
+
+  // Build similarity matrix
+  const n = nodes.length;
+  const matrix = Array.from({ length: n }, () => Array(n).fill(0));
+
+  // Diagonal = 1 (self-similarity)
+  for (let i = 0; i < n; i++) matrix[i][i] = 1.0;
+
+  // Fill from edges
+  const nodeIdx = {};
+  nodes.forEach((nd, i) => { nodeIdx[nd.id] = i; });
+  edges.forEach(e => {
+    const si = nodeIdx[e.source];
+    const ti = nodeIdx[e.target];
+    if (si !== undefined && ti !== undefined) {
+      matrix[si][ti] = e.similarity || 0;
+      matrix[ti][si] = e.similarity || 0;
+    }
+  });
+
+  // Render
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + "px";
+  canvas.style.height = h + "px";
+
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  const isLight = document.body.classList.contains("light-theme");
+  ctx.fillStyle = isLight ? "#f8fafc" : "rgba(9,9,11,0.95)";
+  ctx.fillRect(0, 0, w, h);
+
+  // Layout: labels on left + top, heatmap cells in center
+  const labelWidth = Math.min(140, w * 0.25);
+  const labelHeight = 40;
+  const gridW = w - labelWidth - 20;
+  const gridH = h - labelHeight - 20;
+  const cellW = gridW / n;
+  const cellH = gridH / n;
+  const offsetX = labelWidth;
+  const offsetY = labelHeight;
+
+  // Truncate label helper
+  const truncLabel = (text, maxLen) => text.length > maxLen ? text.slice(0, maxLen - 1) + "…" : text;
+
+  // Draw column labels (top)
+  ctx.save();
+  ctx.font = `500 ${Math.min(11, cellW * 0.6)}px var(--font-mono, monospace)`;
+  ctx.fillStyle = isLight ? "#64748b" : "rgba(255,255,255,0.5)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  for (let j = 0; j < n; j++) {
+    const x = offsetX + j * cellW + cellW / 2;
+    const label = truncLabel(nodes[j].label || `C${j}`, 12);
+    ctx.save();
+    ctx.translate(x, offsetY - 4);
+    ctx.rotate(-Math.PI / 6);
+    ctx.fillText(label, 0, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // Draw row labels (left)
+  ctx.font = `500 ${Math.min(11, cellH * 0.7)}px var(--font-mono, monospace)`;
+  ctx.fillStyle = isLight ? "#64748b" : "rgba(255,255,255,0.5)";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i < n; i++) {
+    const y = offsetY + i * cellH + cellH / 2;
+    ctx.fillText(truncLabel(nodes[i].label || `C${i}`, 16), offsetX - 8, y);
+  }
+
+  // Draw cells
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const val = matrix[i][j];
+      const x = offsetX + j * cellW;
+      const y = offsetY + i * cellH;
+
+      ctx.fillStyle = _corrColor(val, isLight);
+      ctx.beginPath();
+      _roundRect(ctx, x + 1, y + 1, cellW - 2, cellH - 2, 3);
+      ctx.fill();
+
+      // Show value text in cell if cells are large enough
+      if (cellW > 35 && cellH > 22) {
+        ctx.fillStyle = val > 0.6 ? "#fff" : (isLight ? "#334155" : "rgba(255,255,255,0.6)");
+        ctx.font = `700 ${Math.min(12, cellW * 0.3)}px var(--font-mono, monospace)`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(val.toFixed(2), x + cellW / 2, y + cellH / 2);
+      }
+    }
+  }
+
+  // Store layout for tooltip
+  canvas._corrLayout = { n, nodes, matrix, offsetX, offsetY, cellW, cellH };
+
+  // Wire tooltip
+  canvas.onmousemove = _corrMouseMove;
+  canvas.onmouseleave = () => {
+    document.getElementById("corr-tooltip")?.classList.add("hidden");
+  };
+}
+
+function _corrColor(val, isLight) {
+  // Dark: low=dark blue → cyan → amber → red=high
+  // 0.0 = deep blue, 0.5 = cyan, 0.75 = amber, 1.0 = red
+  if (val <= 0) return isLight ? "#e2e8f0" : "#1e3a5f";
+  if (val >= 1) return "#ef4444";
+  if (val < 0.35) {
+    const t = val / 0.35;
+    return isLight
+      ? `rgba(14, 165, 233, ${0.1 + t * 0.25})`
+      : `rgba(14, 165, 233, ${0.15 + t * 0.4})`;
+  }
+  if (val < 0.65) {
+    const t = (val - 0.35) / 0.3;
+    const r = Math.round(14 + t * (245 - 14));
+    const g = Math.round(165 + t * (158 - 165));
+    const b = Math.round(233 + t * (11 - 233));
+    return `rgba(${r}, ${g}, ${b}, ${isLight ? 0.4 : 0.65})`;
+  }
+  // 0.65 - 1.0: amber to red
+  const t = (val - 0.65) / 0.35;
+  const r = Math.round(245 + t * (239 - 245));
+  const g = Math.round(158 - t * 90);
+  const b = Math.round(11 + t * (68 - 11));
+  return `rgba(${r}, ${g}, ${b}, ${isLight ? 0.5 : 0.8})`;
+}
+
+function _roundRect(ctx, x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function _corrMouseMove(e) {
+  const canvas = e.target;
+  const layout = canvas._corrLayout;
+  if (!layout) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  const tooltip = document.getElementById("corr-tooltip");
+  if (!tooltip) return;
+
+  const col = Math.floor((mx - layout.offsetX) / layout.cellW);
+  const row = Math.floor((my - layout.offsetY) / layout.cellH);
+
+  if (row < 0 || row >= layout.n || col < 0 || col >= layout.n) {
+    tooltip.classList.add("hidden");
+    return;
+  }
+
+  const val = layout.matrix[row][col];
+  const nameR = layout.nodes[row].label || `Cluster ${row}`;
+  const nameC = layout.nodes[col].label || `Cluster ${col}`;
+
+  tooltip.innerHTML = `<span style="color:var(--accent-cyan)">${nameR}</span> × <span style="color:var(--accent-cyan)">${nameC}</span><br>` +
+    `<span style="font-weight:700;font-size:1rem;color:${val > 0.6 ? 'var(--risk-high)' : val > 0.35 ? 'var(--risk-medium)' : 'var(--risk-low)'}">${val.toFixed(3)}</span>` +
+    `<span style="color:var(--text-dim);margin-left:0.5rem">${val >= 0.6 ? 'HIGH' : val >= 0.35 ? 'MOD' : 'LOW'}</span>`;
+
+  tooltip.classList.remove("hidden");
+  tooltip.style.left = Math.min(mx + 12, rect.width - 200) + "px";
+  tooltip.style.top = Math.min(my + 12, rect.height - 60) + "px";
+}
+
+// ── Hook into dashboard refresh cycle ──
+const _quantOrigRefresh = refreshDashboard;
+refreshDashboard = async function () {
+  await _quantOrigRefresh();
+  computeQuantMetrics();
+};
+
+// ── Correlation matrix refresh button ──
+document.addEventListener("DOMContentLoaded", () => {
+  const corrBtn = document.getElementById("corr-refresh-btn");
+  if (corrBtn) {
+    corrBtn.addEventListener("click", () => computeQuantMetrics());
+  }
+
+  // Initial computation after short delay to let dashboard load
+  setTimeout(computeQuantMetrics, 2000);
+});

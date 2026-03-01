@@ -199,6 +199,46 @@
       </div>
     </section>
 
+    <!-- ── QUANT ANALYTICS PANEL ── -->
+    <section id="quant-panel" class="card glass-panel wide">
+      <div class="card-header split">
+        <h2><i class="ph ph-chart-pie-slice"></i> Quant Analytics</h2>
+        <span class="feed-status-text" id="quant-update-ts" style="font-size:0.7rem">—</span>
+      </div>
+      <div class="quant-grid" id="quant-grid">
+        <div class="quant-card">
+          <div class="quant-label"><i class="ph ph-wave-sine"></i> Risk Volatility</div>
+          <div class="quant-value data-number" id="qm-sigma">—</div>
+          <div class="quant-sub">σ of risk index over window</div>
+        </div>
+        <div class="quant-card">
+          <div class="quant-label"><i class="ph ph-shield-warning"></i> VaR (95%)</div>
+          <div class="quant-value data-number" id="qm-var95">—</div>
+          <div class="quant-sub">95th percentile worst risk</div>
+        </div>
+        <div class="quant-card">
+          <div class="quant-label"><i class="ph ph-scales"></i> Sharpe-like Ratio</div>
+          <div class="quant-value data-number" id="qm-sharpe">—</div>
+          <div class="quant-sub">(μ − baseline) / σ</div>
+        </div>
+        <div class="quant-card">
+          <div class="quant-label"><i class="ph ph-circles-three-plus"></i> Concentration (HHI)</div>
+          <div class="quant-value data-number" id="qm-hhi">—</div>
+          <div class="quant-sub">Narrative risk Herfindahl index</div>
+        </div>
+        <div class="quant-card">
+          <div class="quant-label"><i class="ph ph-lightning"></i> Risk Velocity</div>
+          <div class="quant-value data-number" id="qm-velocity">—</div>
+          <div class="quant-sub">Δrisk / Δtime (per hour)</div>
+        </div>
+        <div class="quant-card">
+          <div class="quant-label"><i class="ph ph-link-simple"></i> Systemic β</div>
+          <div class="quant-value data-number" id="qm-beta">—</div>
+          <div class="quant-sub">Avg inter-narrative similarity</div>
+        </div>
+      </div>
+    </section>
+
     <!-- ── ROW 1: Pipeline Status ── -->
     <section id="pipeline-panel" class="card glass-panel">
       <div class="card-header split">
@@ -276,6 +316,27 @@
           <div class="spinner"></div>
           <span style="color:var(--text-muted);font-size:0.8rem;margin-top:0.5rem">Loading vector space...</span>
         </div>
+      </div>
+    </section>
+
+    <!-- ── NARRATIVE CORRELATION MATRIX ── -->
+    <section id="corr-matrix-panel" class="card glass-panel wide">
+      <div class="card-header split">
+        <h2><i class="ph ph-grid-four"></i> Narrative Correlation Matrix</h2>
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+          <div class="corr-legend">
+            <span class="corr-legend-low">0.0</span>
+            <div class="corr-legend-bar"></div>
+            <span class="corr-legend-high">1.0</span>
+          </div>
+          <button class="icon-btn" id="corr-refresh-btn" title="Refresh matrix">
+            <i class="ph ph-arrows-clockwise"></i>
+          </button>
+        </div>
+      </div>
+      <div class="corr-matrix-wrap" id="corr-matrix-wrap">
+        <canvas id="corr-canvas"></canvas>
+        <div class="corr-tooltip hidden" id="corr-tooltip"></div>
       </div>
     </section>
 
