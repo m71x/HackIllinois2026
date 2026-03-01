@@ -1,0 +1,37 @@
+﻿4348a8d HEAD@{0}: reset: moving to HEAD
+4348a8d HEAD@{1}: commit: added login
+c2b3f41 HEAD@{2}: commit: Changed front end
+963f70a HEAD@{3}: pull: Fast-forward
+6f51634 HEAD@{4}: commit: pitch script
+661c0d3 HEAD@{5}: commit: Fixed light mode
+9447743 HEAD@{6}: pull --rebase origin frontend (finish): returning to refs/heads/frontend
+9447743 HEAD@{7}: pull --rebase origin frontend (pick): fixed ps1 script
+caa1194 HEAD@{8}: pull --rebase origin frontend (start): checkout caa1194b555a3f93340577802752e87faccbc3b0
+2ed310e HEAD@{9}: commit: fixed ps1 script
+a80245f HEAD@{10}: pull --rebase origin frontend: Fast-forward
+3d15be9 HEAD@{11}: pull --rebase origin frontend: Fast-forward
+98509d8 HEAD@{12}: pull --rebase origin frontend: Fast-forward
+a71c5c9 HEAD@{13}: reset: moving to origin/frontend
+daa7ee0 HEAD@{14}: pull: Fast-forward
+3162dbe HEAD@{15}: pull: Merge made by the 'ort' strategy.
+3d3254d HEAD@{16}: commit: added light mode
+ecbd7a1 HEAD@{17}: commit: got rid of will sucks
+10601c6 HEAD@{18}: commit: added naratives
+70cc4f2 HEAD@{19}: pull: Merge made by the 'ort' strategy.
+9b09614 HEAD@{20}: pull: Merge made by the 'ort' strategy.
+0e5b848 HEAD@{21}: commit: added naratives
+320b04e HEAD@{22}: pull: Fast-forward
+0057b5c HEAD@{23}: pull: Fast-forward
+21c3b1a HEAD@{24}: reset: moving to origin/frontend
+841c9c5 HEAD@{25}: reset: moving to HEAD
+841c9c5 HEAD@{26}: reset: moving to HEAD
+841c9c5 HEAD@{27}: pull: Fast-forward
+dd88072 HEAD@{28}: pull: Merge made by the 'ort' strategy.
+fe1a6be HEAD@{29}: commit: merge frontend and backend
+d0c6e29 HEAD@{30}: merge origin/model: Fast-forward
+3181074 HEAD@{31}: commit: Added premium frontend UI with stocks and timezones
+14b5d88 HEAD@{32}: checkout: moving from frontend to frontend
+14b5d88 HEAD@{33}: checkout: moving from master to frontend
+f78015e HEAD@{34}: commit: front end made
+9ee3eb2 HEAD@{35}: pull origin frontend: Fast-forward
+25a24d1 HEAD@{36}: initial pull

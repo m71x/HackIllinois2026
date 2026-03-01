@@ -1,0 +1,49 @@
+╔══════════════════════════════════════════════════╗
+║  NEXUS — Real-World Model Risk Engine            ║
+║  Starting full stack with real data...            ║
+╚══════════════════════════════════════════════════╝
+
+✅ Virtual environment found
+📦 Checking dependencies...
+✅ Dependencies ready
+🗑️  Clearing old ChromaDB data...
+🚀 Starting backend server...
+   Waiting for server..INFO:     Started server process [1119]
+INFO:     Waiting for application startup.
+┌─ Modal Embedder  ✗  OFFLINE
+│  Reason : Token missing. Could not authenticate client. If you have token credentials, see modal.com/docs/reference/modal.config for setup help. If you are a new user, register an account at modal.com, then run `modal token new`.
+└─ Falling back to local sentence-transformers (CPU)
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:45036 - "GET /health HTTP/1.1" 200 OK
+ ✅
+
+INFO:     127.0.0.1:45044 - "GET /api/modal/status HTTP/1.1" 200 OK
+🟡 Modal GPU Embedder  ✗  OFFLINE    (backend: local_cpu — using local CPU)
+
+📰 Bulk ingesting financial news (90+ feeds, 72 h lookback)...
+   ℹ️  The server auto-started bulk ingest on boot.
+      Triggering an additional pass now for maximum coverage...
+INFO:     127.0.0.1:45046 - "POST /api/ingest/bulk HTTP/1.1" 200 OK
+   🔄 Bulk ingest running in background — watch server logs for progress
+
+INFO:     127.0.0.1:45062 - "GET /api/pipeline/stats HTTP/1.1" 200 OK
+   📊 Early stats: 0 stories ingested → 0 narrative clusters so far
+   (ingestion continues in background; refresh the dashboard in ~30 s)
+
+📊 Verifying risk index...
+INFO:     127.0.0.1:45064 - "GET /api/risk HTTP/1.1" 200 OK
+   Risk Index: None, Narratives: 0
+
+╔══════════════════════════════════════════════════╗
+║  ✅ NEXUS is running!                             ║
+║                                                   ║
+║  🌐 Dashboard:  http://localhost:8000/             ║
+║  📡 API Docs:   http://localhost:8000/docs         ║
+║  🔑 Health:     http://localhost:8000/health       ║
+║                                                   ║
+║  Press Ctrl+C to stop the server                  ║
+╚══════════════════════════════════════════════════╝
+[embedder] Modal embed_batch failed (Token missing. Could not authenticate client. If you have token credentials, see modal.com/docs/reference/modal.config for setup help. If you are a new user, register an account at modal.com, then run `modal token new`.), falling back to local
+[embedder] Modal embed_batch failed (Token missing. Could not authenticate client. If you have token credentials, see modal.com/docs/reference/modal.config for setup help. If you are a new user, register an account at modal.com, then run `modal token new`.), falling back to local
+start.sh: line 128:  1119 Bus error               (core dumped) ../.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000  (wd: /mnt/c/Users/wildc/OneDrive/Hack illinois 2026/HackIllinois2026/backend)

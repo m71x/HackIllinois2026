@@ -1,0 +1,2 @@
+Remove-Item -Recurse -Force backend\chroma_db
+.\start.ps1

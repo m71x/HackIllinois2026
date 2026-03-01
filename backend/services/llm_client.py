@@ -263,7 +263,10 @@ def label_narrative(story_text: str) -> dict:
                 logger.debug("[llm_client] Modal label → %r", result["name"])
                 return result
         except Exception as exc:
-            logger.warning("[llm_client] Modal label call failed (%s), falling back", exc)
+            global _labeler_offline, _modal_labeler
+            _labeler_offline = True
+            _modal_labeler = None
+            logger.warning("[llm_client] Modal label call failed (%s), using heuristics permanently", exc)
 
     return _heuristic_label(story_text)
 
