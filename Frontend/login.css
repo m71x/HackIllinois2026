@@ -1,0 +1,348 @@
+/* ============================================================
+   NEXUS LOGIN — Dark Zinc + Amber
+   ============================================================ */
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background: #09090b;
+    color: #fafaf9;
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+/* ── Background ── */
+.login-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+}
+
+.bg-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(63, 63, 70, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(63, 63, 70, 0.08) 1px, transparent 1px);
+    background-size: 48px 48px;
+}
+
+.bg-glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(160px);
+    pointer-events: none;
+}
+
+.bg-glow-1 {
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(245, 158, 11, 0.08) 0%, transparent 70%);
+    top: -200px;
+    right: -100px;
+}
+
+.bg-glow-2 {
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.05) 0%, transparent 70%);
+    bottom: -100px;
+    left: -100px;
+}
+
+.bg-glow-3 {
+    width: 400px;
+    height: 400px;
+    background: radial-gradient(circle, rgba(245, 158, 11, 0.04) 0%, transparent 70%);
+    top: 50%;
+    left: 40%;
+}
+
+/* ── Container ── */
+.login-container {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    min-height: 100vh;
+}
+
+/* ── Left: Branding ── */
+.login-brand {
+    flex: 1.1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    border-right: 1px solid rgba(63, 63, 70, 0.4);
+}
+
+.brand-content {
+    max-width: 460px;
+}
+
+.brand-icon {
+    margin-bottom: 0.5rem;
+}
+
+.brand-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 3.2rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #fafaf9;
+    line-height: 1;
+}
+
+.brand-subtitle {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    color: #f59e0b;
+    text-transform: uppercase;
+    margin-top: 0.25rem;
+}
+
+.brand-tagline {
+    font-size: 1rem;
+    color: #a1a1aa;
+    line-height: 1.6;
+    margin-top: 1.5rem;
+}
+
+/* ── Stats row ── */
+.brand-stats {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 2.5rem;
+    padding-top: 2rem;
+    border-top: 1px solid rgba(63, 63, 70, 0.4);
+}
+
+.brand-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.brand-stat-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #f59e0b;
+}
+
+.brand-stat-label {
+    font-size: 0.72rem;
+    color: #71717a;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Features list ── */
+.brand-features {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    margin-top: 2rem;
+}
+
+.brand-feature {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    font-size: 0.82rem;
+    color: #a1a1aa;
+}
+
+.brand-feature i {
+    font-size: 1rem;
+    color: #f59e0b;
+    width: 20px;
+    text-align: center;
+}
+
+/* ── Right: Sign-in Panel ── */
+.login-panel {
+    flex: 0.9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+}
+
+.login-form {
+    width: 100%;
+    max-width: 380px;
+}
+
+.login-header {
+    margin-bottom: 2.5rem;
+}
+
+.login-header h2 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.65rem;
+    font-weight: 700;
+    color: #fafaf9;
+    margin-bottom: 0.4rem;
+}
+
+.login-header p {
+    font-size: 0.88rem;
+    color: #71717a;
+}
+
+/* ── Sign-in Buttons ── */
+.signin-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.signin-btn {
+    width: 100%;
+    padding: 0.8rem 1.25rem;
+    border-radius: 6px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem;
+    transition: all 0.15s ease;
+    position: relative;
+}
+
+.signin-btn-icon {
+    flex-shrink: 0;
+}
+
+/* Google button */
+.signin-btn-google {
+    background: #fafaf9;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    color: #1c1917;
+}
+
+.signin-btn-google:hover {
+    background: #f5f5f4;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-1px);
+}
+
+.signin-btn-google:active {
+    transform: translateY(0);
+    background: #e7e5e4;
+}
+
+/* Robinhood button */
+.signin-btn-robinhood {
+    background: #0d1b0e;
+    border: 1px solid rgba(0, 200, 5, 0.30);
+    color: #00c805;
+}
+
+.signin-btn-robinhood:hover {
+    background: #0f2510;
+    border-color: rgba(0, 200, 5, 0.50);
+    box-shadow: 0 2px 16px rgba(0, 200, 5, 0.10);
+    transform: translateY(-1px);
+}
+
+.signin-btn-robinhood:active {
+    transform: translateY(0);
+    background: #122d13;
+}
+
+/* Demo button */
+.signin-btn-demo {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    color: #f59e0b;
+}
+
+.signin-btn-demo:hover {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.45);
+    box-shadow: 0 2px 16px rgba(245, 158, 11, 0.08);
+    transform: translateY(-1px);
+}
+
+.signin-btn-demo:active {
+    transform: translateY(0);
+    background: rgba(245, 158, 11, 0.22);
+}
+
+.signin-btn-demo i {
+    font-size: 1.1rem;
+}
+
+/* ── Divider ── */
+.login-divider {
+    display: flex;
+    align-items: center;
+    margin: 0.35rem 0;
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(63, 63, 70, 0.5);
+}
+
+.login-divider span {
+    padding: 0 1rem;
+    font-size: 0.7rem;
+    color: #52525b;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ── Note ── */
+.login-note {
+    margin-top: 2rem;
+    font-size: 0.72rem;
+    color: #52525b;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.login-note i {
+    font-size: 0.85rem;
+    color: #71717a;
+}
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+    .login-container {
+        flex-direction: column;
+    }
+
+    .login-brand {
+        border-right: none;
+        border-bottom: 1px solid rgba(63, 63, 70, 0.4);
+        padding: 2rem;
+    }
+
+    .brand-stats {
+        flex-wrap: wrap;
+    }
+
+    .login-panel {
+        padding: 2rem;
+    }
+}

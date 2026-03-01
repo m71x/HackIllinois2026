@@ -25,6 +25,16 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
   <link rel="stylesheet" href="styles.css" />
+
+  <!-- Auth gate: redirect to login if not signed in -->
+  <script>
+    (function () {
+      const user = localStorage.getItem('nexus_user');
+      if (!user && !window.location.pathname.includes('login')) {
+        window.location.href = '/login.html';
+      }
+    })();
+  </script>
 </head>
 
 <body class="dark-theme">
@@ -38,7 +48,7 @@
   <header id="main-header" class="glass-panel">
     <div class="header-left">
       <div class="logo-mark"><span
-          style="font-family: var(--font-mono); font-weight: 700; letter-spacing: -8px; padding-right: 8px; font-size: 2rem; text-shadow: 0 0 8px rgba(0,240,255,0.3);">!\!</span>
+          style="font-family: var(--font-mono); font-weight: 700; letter-spacing: -8px; padding-right: 8px; font-size: 2rem; text-shadow: 0 0 8px rgba(245,158,11,0.3);">!\!</span>
       </div>
       <div class="header-titles">
         <h1>NEXUS <span class="fw-light">Risk Engine</span></h1>
@@ -52,6 +62,8 @@
       <button class="tab-btn" data-target="stocks-tab"><i class="ph ph-trend-up"></i> Global Equities</button>
       <span class="tab-divider">|</span>
       <button class="tab-btn" data-target="ticker-tab"><i class="ph ph-pulse"></i> Narrative Ticker</button>
+      <span class="tab-divider">|</span>
+      <button class="tab-btn" data-target="portfolio-tab"><i class="ph ph-briefcase"></i> Portfolio Risk</button>
     </div>
     <div class="header-right">
       <button id="theme-toggle" class="icon-btn theme-btn" title="Toggle Theme">
@@ -64,6 +76,12 @@
         <div class="pulse-dot"></div> <span id="conn-status">LIVE</span>
       </div>
       <div id="last-updated" class="last-updated"><i class="ph ph-clock"></i> —</div>
+      <div id="user-avatar" class="user-avatar" title="Account">
+        <img id="user-avatar-img" src="" alt="" style="display:none" />
+        <span id="user-avatar-initial"></span>
+      </div>
+      <button id="signout-btn" class="icon-btn" title="Sign Out" onclick="nexusSignOut()" style="font-size:0.9rem"><i
+          class="ph ph-sign-out"></i></button>
     </div>
   </header>
 
@@ -468,6 +486,83 @@
       <div id="nt-empty" class="empty-state hidden">
         <div class="spinner"></div>
         <p>Loading narrative feed...</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================== PORTFOLIO RISK TAB ===================== -->
+  <main id="portfolio-tab" class="grid tab-pane hidden">
+    <section class="card glass-panel wide">
+      <div class="card-header split">
+        <h2><i class="ph ph-briefcase"></i> Portfolio Risk Scanner</h2>
+        <button id="portfolio-scan-btn" class="action-btn-primary" onclick="scanPortfolioRisk()">
+          <i class="ph ph-magnifying-glass"></i> Scan Risk
+        </button>
+      </div>
+
+      <!-- Add holdings -->
+      <div class="portfolio-input-row">
+        <div class="portfolio-input-group">
+          <input id="portfolio-ticker-input" type="text" placeholder="Ticker (e.g. AAPL)" class="portfolio-input" />
+          <input id="portfolio-shares-input" type="number" placeholder="Shares" min="1" value="100"
+            class="portfolio-input portfolio-input-sm" />
+          <button class="btn-glow" onclick="addPortfolioHolding()">
+            <i class="ph ph-plus"></i> Add
+          </button>
+        </div>
+        <div class="portfolio-quick-add">
+          <span class="portfolio-quick-label">Quick add:</span>
+          <button class="portfolio-quick-btn" onclick="quickAddTicker('AAPL')">AAPL</button>
+          <button class="portfolio-quick-btn" onclick="quickAddTicker('NVDA')">NVDA</button>
+          <button class="portfolio-quick-btn" onclick="quickAddTicker('JPM')">JPM</button>
+          <button class="portfolio-quick-btn" onclick="quickAddTicker('XOM')">XOM</button>
+          <button class="portfolio-quick-btn" onclick="quickAddTicker('TSLA')">TSLA</button>
+          <button class="portfolio-quick-btn" onclick="quickAddTicker('AMZN')">AMZN</button>
+        </div>
+      </div>
+
+      <!-- Holdings table -->
+      <div class="table-wrapper custom-scrollbar">
+        <table id="portfolio-table">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Company</th>
+              <th>Shares</th>
+              <th>Narrative Exposure</th>
+              <th>Top Threat</th>
+              <th>Risk Score</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="portfolio-tbody">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Portfolio empty state -->
+      <div id="portfolio-empty" class="empty-state">
+        <i class="ph ph-briefcase" style="font-size:2.5rem;color:var(--text-dim);margin-bottom:0.5rem"></i>
+        <p style="color:var(--text-muted);font-size:0.9rem">Add stock tickers above to scan narrative risk exposure</p>
+        <p style="color:var(--text-dim);font-size:0.75rem;margin-top:0.3rem">NEXUS will analyze which active narratives
+          threaten each holding</p>
+      </div>
+
+      <!-- Aggregate risk summary (shown after scan) -->
+      <div id="portfolio-summary" class="portfolio-summary" style="display:none">
+        <div class="portfolio-summary-card">
+          <span class="portfolio-summary-label">Portfolio Narrative Risk</span>
+          <span id="portfolio-aggregate-risk" class="portfolio-summary-value">—</span>
+        </div>
+        <div class="portfolio-summary-card">
+          <span class="portfolio-summary-label">Highest Exposure</span>
+          <span id="portfolio-highest-exposure" class="portfolio-summary-value">—</span>
+        </div>
+        <div class="portfolio-summary-card">
+          <span class="portfolio-summary-label">Active Threats</span>
+          <span id="portfolio-threat-count" class="portfolio-summary-value">—</span>
+        </div>
       </div>
     </section>
   </main>

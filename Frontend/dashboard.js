@@ -3531,3 +3531,241 @@ appendFeedItem = function (result) {
   clearTimeout(_ntIngestDebounce);
   _ntIngestDebounce = setTimeout(_ntRefresh, 1500);
 };
+
+// ============================================================
+// SECTION — User Avatar & Auth
+// ============================================================
+
+function nexusSignOut() {
+  localStorage.removeItem('nexus_user');
+  localStorage.removeItem('nexus_token');
+  window.location.href = '/login.html';
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const userData = localStorage.getItem('nexus_user');
+  if (!userData) return;
+
+  try {
+    const user = JSON.parse(userData);
+    const avatarImg = document.getElementById('user-avatar-img');
+    const avatarInit = document.getElementById('user-avatar-initial');
+
+    if (user.picture && avatarImg) {
+      avatarImg.src = user.picture;
+      avatarImg.style.display = 'block';
+      if (avatarInit) avatarInit.style.display = 'none';
+    } else if (avatarInit) {
+      avatarInit.textContent = (user.given_name || user.name || 'U')[0].toUpperCase();
+    }
+  } catch (e) {
+    console.warn('[Auth] Failed to parse user data:', e);
+  }
+});
+
+
+// ============================================================
+// SECTION — Portfolio Risk Scanner
+// ============================================================
+
+const _portfolio = {
+  holdings: [],  // { ticker: string, shares: number, companyName: string, risk: number, topThreat: string, exposure: number, narratives: [] }
+};
+
+function addPortfolioHolding() {
+  const tickerInput = document.getElementById('portfolio-ticker-input');
+  const sharesInput = document.getElementById('portfolio-shares-input');
+  if (!tickerInput) return;
+
+  const ticker = tickerInput.value.trim().toUpperCase();
+  const shares = parseInt(sharesInput?.value) || 100;
+
+  if (!ticker || ticker.length > 6) return;
+  if (_portfolio.holdings.some(h => h.ticker === ticker)) {
+    tickerInput.value = '';
+    return; // Already added
+  }
+
+  _portfolio.holdings.push({
+    ticker,
+    shares,
+    companyName: '—',
+    risk: null,
+    topThreat: '—',
+    exposure: 0,
+    narratives: [],
+  });
+
+  tickerInput.value = '';
+  _renderPortfolioTable();
+}
+
+function quickAddTicker(ticker) {
+  const tickerInput = document.getElementById('portfolio-ticker-input');
+  if (tickerInput) tickerInput.value = ticker;
+  addPortfolioHolding();
+}
+
+function removePortfolioHolding(ticker) {
+  _portfolio.holdings = _portfolio.holdings.filter(h => h.ticker !== ticker);
+  _renderPortfolioTable();
+}
+
+function _renderPortfolioTable() {
+  const tbody = document.getElementById('portfolio-tbody');
+  const emptyState = document.getElementById('portfolio-empty');
+  const summaryEl = document.getElementById('portfolio-summary');
+  if (!tbody) return;
+
+  if (_portfolio.holdings.length === 0) {
+    tbody.innerHTML = '';
+    if (emptyState) emptyState.style.display = '';
+    if (summaryEl) summaryEl.style.display = 'none';
+    return;
+  }
+
+  if (emptyState) emptyState.style.display = 'none';
+
+  tbody.innerHTML = _portfolio.holdings.map(h => {
+    const riskDisplay = h.risk !== null ? h.risk.toFixed(2) : '—';
+    const riskCol = h.risk !== null ? riskColor(h.risk) : 'var(--text-dim)';
+    const expPct = Math.round((h.exposure || 0) * 100);
+    const expColor = h.exposure > 0.6 ? 'var(--risk-high)' : h.exposure > 0.3 ? 'var(--risk-medium)' : 'var(--risk-low)';
+
+    return `<tr>
+      <td><strong style="font-family:var(--font-mono);color:var(--accent-cyan)">${h.ticker}</strong></td>
+      <td>${h.companyName}</td>
+      <td class="num-col" style="font-family:var(--font-mono)">${h.shares}</td>
+      <td>
+        ${h.narratives.length > 0 ? `${h.narratives.length} narratives` : '—'}
+        ${h.exposure > 0 ? `<div class="portfolio-exposure-bar"><div class="portfolio-exposure-fill" style="width:${expPct}%;background:${expColor}"></div></div>` : ''}
+      </td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${h.topThreat}</td>
+      <td class="num-col" style="color:${riskCol};font-weight:700;font-family:var(--font-mono)">${riskDisplay}</td>
+      <td><button class="portfolio-remove-btn" onclick="removePortfolioHolding('${h.ticker}')" title="Remove"><i class="ph ph-x"></i></button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function scanPortfolioRisk() {
+  if (_portfolio.holdings.length === 0) return;
+
+  const btn = document.getElementById('portfolio-scan-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Scanning...';
+  }
+
+  const tickers = _portfolio.holdings.map(h => h.ticker);
+
+  try {
+    // Use the existing relate endpoint
+    const response = await fetch('/api/tickers/relate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tickers, n_results: 5, active_only: true }),
+    });
+
+    const data = await response.json();
+
+    if (data.results) {
+      data.results.forEach(result => {
+        const holding = _portfolio.holdings.find(h => h.ticker === result.ticker);
+        if (!holding) return;
+
+        holding.companyName = result.company_name || holding.ticker;
+        holding.narratives = result.narratives || [];
+
+        if (holding.narratives.length > 0) {
+          // Risk = weighted average similarity * narrative risk
+          const topNarr = holding.narratives[0];
+          holding.topThreat = topNarr.name || '—';
+
+          // Compute exposure: average similarity to top 3 narratives
+          const top3 = holding.narratives.slice(0, 3);
+          holding.exposure = top3.reduce((sum, n) => sum + (1 - (n.distance || 1)), 0) / top3.length;
+
+          // Risk: max narrative risk weighted by similarity
+          holding.risk = Math.max(...holding.narratives.map(n =>
+            (n.model_risk || 0) * (1 - (n.distance || 1))
+          ));
+        } else {
+          holding.risk = 0;
+          holding.exposure = 0;
+          holding.topThreat = 'No active threats';
+        }
+      });
+
+      // Handle errors
+      if (data.errors) {
+        Object.entries(data.errors).forEach(([ticker, err]) => {
+          const holding = _portfolio.holdings.find(h => h.ticker === ticker);
+          if (holding) {
+            holding.companyName = 'Unknown';
+            holding.topThreat = 'Ticker not found';
+          }
+        });
+      }
+    }
+
+    _renderPortfolioTable();
+    _updatePortfolioSummary();
+
+  } catch (err) {
+    console.error('[Portfolio] Scan failed:', err);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="ph ph-magnifying-glass"></i> Scan Risk';
+    }
+  }
+}
+
+function _updatePortfolioSummary() {
+  const summaryEl = document.getElementById('portfolio-summary');
+  if (!summaryEl) return;
+
+  const scanned = _portfolio.holdings.filter(h => h.risk !== null);
+  if (scanned.length === 0) return;
+
+  summaryEl.style.display = 'flex';
+
+  // Aggregate risk: share-weighted average
+  const totalShares = scanned.reduce((s, h) => s + h.shares, 0);
+  const aggRisk = scanned.reduce((s, h) => s + (h.risk || 0) * h.shares, 0) / totalShares;
+
+  // Highest exposure holding
+  const highestExposure = scanned.reduce((best, h) => (h.exposure || 0) > (best.exposure || 0) ? h : best, scanned[0]);
+
+  // Count unique threats
+  const allThreats = new Set();
+  scanned.forEach(h => h.narratives.forEach(n => allThreats.add(n.name)));
+
+  const aggEl = document.getElementById('portfolio-aggregate-risk');
+  const highEl = document.getElementById('portfolio-highest-exposure');
+  const threatEl = document.getElementById('portfolio-threat-count');
+
+  if (aggEl) {
+    aggEl.textContent = aggRisk.toFixed(2);
+    aggEl.style.color = riskColor(aggRisk);
+  }
+  if (highEl) {
+    highEl.textContent = highestExposure.ticker;
+    highEl.style.color = 'var(--accent-cyan)';
+  }
+  if (threatEl) {
+    threatEl.textContent = allThreats.size;
+  }
+}
+
+// Initialize portfolio tab activation
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelector('[data-target="portfolio-tab"]')?.addEventListener("click", () => {
+    _renderPortfolioTable();
+  });
+
+  // Enter key in ticker input
+  document.getElementById('portfolio-ticker-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addPortfolioHolding();
+  });
+});
