@@ -302,6 +302,6 @@ def search_narratives(req: SearchRequest):
                 },
                 "similarity": round(1 - d / 2, 4),
             }
-            for n, d in results
+            for n, d, _emb in results
         ]
     }

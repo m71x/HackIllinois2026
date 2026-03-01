@@ -235,8 +235,8 @@ def route_with_embedding(headline: str, body: str, embedding: list[float]) -> di
 
     with _route_lock:
         nearest = vector_store.query_nearest(embedding, n_results=5)
-        best_narrative, best_distance = (
-            (nearest[0][0], nearest[0][1]) if nearest else (None, float("inf"))
+        best_narrative, best_distance, best_emb = (
+            (nearest[0][0], nearest[0][1], nearest[0][2]) if nearest else (None, float("inf"), None)
         )
         route_to_existing = (
             best_narrative is not None and best_distance < NEW_NARRATIVE_THRESHOLD
@@ -244,11 +244,109 @@ def route_with_embedding(headline: str, body: str, embedding: list[float]) -> di
 
     if route_to_existing:
         action = "updated"
-        assert best_narrative is not None  # guaranteed by route_to_existing check
-        narrative = _update_narrative(best_narrative, embedding, headline, full_text, best_distance)
+        assert best_narrative is not None
+        narrative = _update_narrative(
+            best_narrative, embedding, headline, full_text, best_distance,
+            current_embedding=best_emb,
+        )
     else:
         action = "created"
         narrative = _create_narrative(embedding, headline, full_text, best_distance)
+
+    return {
+        "action": action,
+        "narrative_id": narrative.id,
+        "narrative_name": narrative.name,
+        "best_distance": round(best_distance, 4) if best_narrative else None,
+        "threshold": NEW_NARRATIVE_THRESHOLD,
+        "current_surprise": narrative.current_surprise,
+        "current_impact": narrative.current_impact,
+        "model_risk": narrative.model_risk,
+        "narrative_event_count": narrative.event_count,
+    }
+
+
+# Batch size for bulk routing — one ChromaDB query per chunk instead of per story.
+_ROUTE_BATCH_SIZE = 256
+
+
+def batch_query_nearest(
+    embeddings: list[list[float]],
+) -> list[tuple[object, float, list[float]] | None]:
+    """
+    Query ChromaDB for the nearest narrative of every embedding in one
+    batched round-trip per _ROUTE_BATCH_SIZE stories (instead of one
+    round-trip per story).
+
+    Returns one entry per input embedding:
+        (NarrativeDirection, distance, stored_embedding)  if a match exists
+        None                                               if collection is empty
+
+    Acquires _route_lock once per chunk of _ROUTE_BATCH_SIZE.
+    """
+    results: list[tuple[object, float, list[float]] | None] = []
+    for i in range(0, len(embeddings), _ROUTE_BATCH_SIZE):
+        chunk = embeddings[i : i + _ROUTE_BATCH_SIZE]
+        with _route_lock:
+            batch = vector_store.query_nearest_batch(chunk, n_results=1)
+        for row in batch:
+            if row:
+                results.append((row[0][0], row[0][1], row[0][2]))
+            else:
+                results.append(None)
+    return results
+
+
+def route_with_precomputed_nearest(
+    headline: str,
+    body: str,
+    embedding: list[float],
+    nearest: tuple[object, float, list[float]] | None,
+) -> dict:
+    """
+    Route a story using a pre-computed nearest-narrative result.
+
+    Use this in the bulk ingest path where batch_query_nearest() has already
+    done all ChromaDB queries.  Skips the query entirely for the UPDATE path.
+
+    For the CREATE path: re-queries ChromaDB live (under _route_lock) before
+    creating, so a story can route to a narrative created by another story in
+    the same batch since the batch snapshot was taken.
+    """
+    full_text = f"{headline}\n\n{body}"
+
+    if nearest is not None:
+        best_narrative, best_distance, best_emb = nearest
+        route_to_existing = best_distance < NEW_NARRATIVE_THRESHOLD
+    else:
+        best_narrative, best_distance, best_emb = None, float("inf"), None
+        route_to_existing = False
+
+    if route_to_existing:
+        action = "updated"
+        narrative = _update_narrative(
+            best_narrative, embedding, headline, full_text, best_distance,  # type: ignore[arg-type]
+            current_embedding=best_emb,
+        )
+    else:
+        # Re-query live ChromaDB before creating — another story in the same
+        # batch may have already created a matching narrative since the batch
+        # snapshot was taken.
+        with _route_lock:
+            live = vector_store.query_nearest(embedding, n_results=1)
+            if live and live[0][1] < NEW_NARRATIVE_THRESHOLD:
+                best_narrative, best_distance, best_emb = live[0]
+                route_to_existing = True
+
+        if route_to_existing:
+            action = "updated"
+            narrative = _update_narrative(
+                best_narrative, embedding, headline, full_text, best_distance,  # type: ignore[arg-type]
+                current_embedding=best_emb,
+            )
+        else:
+            action = "created"
+            narrative = _create_narrative(embedding, headline, full_text, best_distance)
 
     return {
         "action": action,
@@ -273,6 +371,7 @@ def _update_narrative(
     headline: str,
     full_text: str,
     distance: float = 0.2,
+    current_embedding: list[float] | None = None,
 ) -> NarrativeDirection:
     # Heuristic scorer — passes narrative for staleness/inversion/maturity signals
     scores = _heuristic_score(headline, full_text, distance, narrative=narrative)
@@ -285,7 +384,9 @@ def _update_narrative(
     narrative.append_impact(scores["impact"], timestamp=now)
     narrative.add_headline(headline)
 
-    current_embedding = vector_store.get_embedding(narrative.id)
+    # Use pre-fetched embedding if provided (avoids a separate get_embedding() call)
+    if current_embedding is None:
+        current_embedding = vector_store.get_embedding(narrative.id)
     updated_embedding = _blend_embedding(current_embedding, story_embedding, n=n_before)
 
     vector_store.update_narrative(narrative, new_embedding=updated_embedding)

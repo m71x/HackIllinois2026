@@ -147,7 +147,7 @@ async def relate_tickers(req: RelateRequest):
         )
 
         narratives = []
-        for narrative, distance in nearest:
+        for narrative, distance, _emb in nearest:
             narratives.append(_narrative_to_dict(narrative, distance))
 
         results.append({
@@ -294,7 +294,7 @@ async def get_ticker(
     )
 
     narratives = []
-    for narrative, distance in nearest:
+    for narrative, distance, _emb in nearest:
         narratives.append(_narrative_to_dict(narrative, distance))
 
     return {

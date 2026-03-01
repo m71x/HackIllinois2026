@@ -27,9 +27,13 @@ import asyncio
 import logging
 import time
 from core.config import settings
-from services.scraper import scrape, ScrapeParams
+from services.scraper import scrape, scrape_rss_streaming, ScrapeParams
 from services.embedder import embed_batch
-from services.narrative_engine import route_with_embedding
+from services.narrative_engine import batch_query_nearest, route_with_precomputed_nearest
+
+# Chunk size for parallel Modal embed calls — avoids one massive payload and
+# lets Modal schedule multiple GPU batches concurrently.
+_EMBED_CHUNK_SIZE = 512
 
 logger = logging.getLogger(__name__)
 
@@ -52,34 +56,66 @@ _tasks: list[asyncio.Task] = []
 
 async def _process_stories(stories, loop: asyncio.AbstractEventLoop, label: str = "poll"):
     """
-    Embed `stories` in one batch call, then route each concurrently.
-    Updates pipeline_stats and broadcasts SSE events.
+    Three-phase pipeline:
+
+      Phase 1 — Parallel embed chunks
+        Texts are split into _EMBED_CHUNK_SIZE chunks and embedded in
+        concurrent Modal calls, reducing latency vs one giant payload.
+
+      Phase 2 — Batch ChromaDB query
+        batch_query_nearest() sends all embeddings to ChromaDB in chunks of
+        256, acquiring _route_lock once per chunk instead of once per story.
+        For 7 000 stories this is ~27 lock acquisitions vs 7 000.
+
+      Phase 3 — Concurrent writes
+        Each story's ChromaDB write (update or create) runs concurrently
+        using the pre-computed nearest result from Phase 2.
     """
     if not stories:
         return
 
-    logger.info("[%s] %d fresh stories — batch-embedding via Modal…", label, len(stories))
-
-    # ── Phase 1: single Modal round-trip for all embeddings ──────────────────
     texts = [f"{s.headline}\n\n{s.body}" for s in stories]
+    logger.info(
+        "[%s] %d fresh stories — embedding in %d parallel chunks…",
+        label, len(stories), (len(texts) + _EMBED_CHUNK_SIZE - 1) // _EMBED_CHUNK_SIZE,
+    )
+
+    # ── Phase 1: parallel chunked embedding ───────────────────────────────────
+    chunks = [texts[i : i + _EMBED_CHUNK_SIZE] for i in range(0, len(texts), _EMBED_CHUNK_SIZE)]
     try:
-        embeddings = await loop.run_in_executor(None, lambda: embed_batch(texts))
+        chunk_results = await asyncio.gather(*[
+            loop.run_in_executor(None, lambda c=chunk: embed_batch(c))
+            for chunk in chunks
+        ])
     except Exception as exc:
         logger.error("[%s] embed_batch failed: %s — aborting cycle", label, exc)
         pipeline_stats["errors"] += len(stories)
         return
+    embeddings = [emb for chunk in chunk_results for emb in chunk]
+    logger.info("[%s] embeddings done (%d vectors) — batch-querying ChromaDB…", label, len(embeddings))
 
-    logger.info("[%s] embeddings done (%d vectors) — routing concurrently…", label, len(embeddings))
+    # ── Phase 2: batch ChromaDB query (one lock acquisition per 256 stories) ──
+    try:
+        nearest_per_story = await loop.run_in_executor(
+            None, lambda: batch_query_nearest(embeddings)
+        )
+    except Exception as exc:
+        logger.error("[%s] batch_query_nearest failed: %s — falling back to per-story routing", label, exc)
+        nearest_per_story = [None] * len(stories)
 
-    # ── Phase 2: concurrent routing (LLM + ChromaDB) ─────────────────────────
+    logger.info("[%s] query done — writing concurrently…", label)
+
+    # ── Phase 3: concurrent writes (skip the ChromaDB query, already done) ────
     sem = asyncio.Semaphore(settings.pipeline_num_workers)
 
-    async def _route_one(story, emb):
+    async def _route_one(story, emb, nearest):
         async with sem:
             try:
                 result = await loop.run_in_executor(
                     None,
-                    lambda s=story, e=emb: route_with_embedding(s.headline, s.body, e),
+                    lambda s=story, e=emb, n=nearest: route_with_precomputed_nearest(
+                        s.headline, s.body, e, n
+                    ),
                 )
                 pipeline_stats["stories_ingested"] += 1
                 pipeline_stats["last_ingested_at"] = time.time()
@@ -100,7 +136,9 @@ async def _process_stories(stories, loop: asyncio.AbstractEventLoop, label: str 
                 logger.error("[%s] route failed [%s…]: %s", label, story.headline[:50], exc)
                 return None
 
-    results = await asyncio.gather(*[_route_one(s, e) for s, e in zip(stories, embeddings)])
+    results = await asyncio.gather(*[
+        _route_one(s, e, n) for s, e, n in zip(stories, embeddings, nearest_per_story)
+    ])
 
     created = sum(1 for r in results if r and r["action"] == "created")
     updated = sum(1 for r in results if r and r["action"] == "updated")
@@ -151,37 +189,100 @@ async def _pipeline_loop():
 
 async def bulk_ingest():
     """
-    Pull the last `bulk_ingest_lookback_hours` of RSS history and ingest it all.
+    Streaming bulk ingest — pipelines scraping, embedding, and routing concurrently.
 
-    Runs as a background task during server startup so it doesn't block the
-    HTTP server from accepting requests. Progress is visible in server logs.
+    Instead of:
+        [scrape all 393 feeds ~20s] → [embed all ~15s] → [route all ~5s]
+
+    This does:
+        [scrape feeds...] ──→ queue ──→ [embed batch-1] ──→ [route batch-1]
+                         ──→ queue ──→ [embed batch-2] ──→ [route batch-2]
+                         ...
+
+    A producer thread runs scrape_rss_streaming() (which uses as_completed
+    internally), pushing per-feed story batches into an asyncio.Queue as each
+    feed resolves.  The async consumer accumulates stories into STREAM_BATCH
+    chunks and launches _process_stories() tasks concurrently — so batch-1 is
+    being embedded/routed while batch-2 is still being scraped.
     """
     loop = asyncio.get_event_loop()
     lookback_minutes = settings.bulk_ingest_lookback_hours * 60
 
-    logger.info(
-        "Bulk ingest starting — lookback=%dh  max_per_feed=%d  feeds=%d",
-        settings.bulk_ingest_lookback_hours,
-        settings.bulk_ingest_max_per_source,
-        # count only the rss feeds from a default ScrapeParams
-        len(ScrapeParams().rss_feeds),
-    )
-
     params = ScrapeParams(
         lookback_minutes=lookback_minutes,
         max_per_source=settings.bulk_ingest_max_per_source,
-        sources=["rss"],   # RSS-only: no API keys needed, highest volume
+        sources=["rss"],
     )
 
-    try:
-        stories = await loop.run_in_executor(None, lambda: scrape(params))
-    except Exception as exc:
-        logger.error("Bulk ingest scrape failed: %s", exc)
-        return
+    n_feeds = len(params.rss_feeds)
+    logger.info(
+        "Bulk ingest starting (streaming) — lookback=%dh  max_per_feed=%d  feeds=%d",
+        settings.bulk_ingest_lookback_hours,
+        settings.bulk_ingest_max_per_source,
+        n_feeds,
+    )
 
-    logger.info("Bulk ingest scraped %d fresh stories — beginning processing…", len(stories))
-    await _process_stories(stories, loop, label="bulk")
-    logger.info("Bulk ingest complete.")
+    # Stories accumulate here; fire off a _process_stories task every STREAM_BATCH
+    STREAM_BATCH = 1024
+
+    # Queue carries per-feed story lists from the producer thread to the async consumer.
+    # maxsize=8 provides backpressure so the thread doesn't race too far ahead.
+    story_queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+
+    def _producer():
+        """Run the blocking streaming generator; push per-feed batches into the queue."""
+        try:
+            for feed_batch in scrape_rss_streaming(params):
+                asyncio.run_coroutine_threadsafe(
+                    story_queue.put(feed_batch), loop
+                ).result()
+        finally:
+            asyncio.run_coroutine_threadsafe(
+                story_queue.put(None), loop  # sentinel
+            ).result()
+
+    # Launch producer in a thread so the async loop stays free
+    producer_future = loop.run_in_executor(None, _producer)
+
+    pending: list = []
+    process_tasks: list[asyncio.Task] = []
+    total_scraped = 0
+
+    while True:
+        feed_batch = await story_queue.get()
+        if feed_batch is None:
+            break  # producer finished
+
+        pending.extend(feed_batch)
+        total_scraped += len(feed_batch)
+
+        # Kick off processing as soon as we have a full batch — don't await yet
+        while len(pending) >= STREAM_BATCH:
+            batch, pending = pending[:STREAM_BATCH], pending[STREAM_BATCH:]
+            logger.info(
+                "Bulk ingest: dispatching batch of %d (total scraped so far: %d)",
+                len(batch), total_scraped,
+            )
+            process_tasks.append(
+                asyncio.create_task(_process_stories(batch, loop, label="bulk"))
+            )
+
+    # Flush any remaining stories that didn't fill a full batch
+    if pending:
+        logger.info("Bulk ingest: flushing final %d stories", len(pending))
+        process_tasks.append(
+            asyncio.create_task(_process_stories(pending, loop, label="bulk"))
+        )
+
+    # Wait for the producer thread and all in-flight processing tasks
+    await producer_future
+    if process_tasks:
+        await asyncio.gather(*process_tasks)
+
+    logger.info(
+        "Bulk ingest complete — %d stories across %d feeds",
+        total_scraped, n_feeds,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # Narrative routing threshold (cosine distance [0, 2])
     # Stories with best_distance >= threshold spawn a new narrative direction.
-    new_narrative_threshold: float = 0.40
+    new_narrative_threshold: float = 0.35
 
     # Pipeline — background auto-scrape
     auto_start_pipeline: bool = True          # start pipeline on boot
@@ -26,8 +26,8 @@ class Settings(BaseSettings):
 
     # Startup bulk ingest — pull historical RSS stories once on boot
     bulk_ingest_on_startup: bool = True
-    bulk_ingest_lookback_hours: int = 168     # reach back 7 days of RSS history
-    bulk_ingest_max_per_source: int = 500     # max items per feed for the bulk pull
+    bulk_ingest_lookback_hours: int = 336     # reach back 14 days of RSS history
+    bulk_ingest_max_per_source: int = 1500    # max items per feed for the bulk pull
 
     # NewsAPI  (newsapi.org — free tier: 100 req/day, 1-month lookback)
     newsapi_key: Optional[str] = None

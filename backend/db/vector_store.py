@@ -103,10 +103,12 @@ def get_all_narratives() -> list[NarrativeDirection]:
 def query_nearest(
     embedding: list[float],
     n_results: int = 5,
-) -> list[tuple[NarrativeDirection, float]]:
+) -> list[tuple[NarrativeDirection, float, list[float]]]:
     """
     Find the nearest narrative directions to the given embedding.
-    Returns list of (NarrativeDirection, distance) sorted by distance ascending.
+    Returns list of (NarrativeDirection, distance, stored_embedding) sorted
+    by distance ascending.  The stored_embedding is included so callers can
+    blend the centroid without a separate get_embedding() round-trip.
     Distance is cosine distance [0, 2]; lower = more similar.
     """
     if collection.count() == 0:
@@ -116,25 +118,66 @@ def query_nearest(
     result = collection.query(
         query_embeddings=[embedding],
         n_results=n_results,
-        include=["metadatas", "distances"],
+        include=["metadatas", "distances", "embeddings"],
     )
 
     narratives = []
-    for id_, meta, dist in zip(
+    for id_, meta, dist, emb in zip(
         result["ids"][0],
         result["metadatas"][0],
         result["distances"][0],
+        result["embeddings"][0],
     ):
-        narratives.append((_deserialize(id_, meta), dist))
+        narratives.append((_deserialize(id_, meta), dist, list(emb)))
 
     return narratives
+
+
+def query_nearest_batch(
+    embeddings: list[list[float]],
+    n_results: int = 1,
+) -> list[list[tuple[NarrativeDirection, float, list[float]]]]:
+    """
+    Batch version of query_nearest — sends all embeddings in one ChromaDB call.
+
+    Returns one result list per input embedding, each sorted by distance
+    ascending.  Using n_results=1 is the default since bulk routing only
+    needs the single nearest neighbour.
+
+    Eliminates per-story ChromaDB round-trips: 7 000 individual queries
+    become a single collection.query() call.
+    """
+    count = collection.count()
+    if count == 0:
+        return [[] for _ in embeddings]
+
+    n_results = min(n_results, count)
+    result = collection.query(
+        query_embeddings=embeddings,
+        n_results=n_results,
+        include=["metadatas", "distances", "embeddings"],
+    )
+
+    out: list[list[tuple[NarrativeDirection, float, list[float]]]] = []
+    for ids, metas, dists, embs in zip(
+        result["ids"],
+        result["metadatas"],
+        result["distances"],
+        result["embeddings"],
+    ):
+        row = [
+            (_deserialize(id_, meta), dist, list(emb))
+            for id_, meta, dist, emb in zip(ids, metas, dists, embs)
+        ]
+        out.append(row)
+    return out
 
 
 def get_embedding(narrative_id: str) -> list[float]:
     """
     Retrieve the stored embedding vector for a narrative.
-    Used by narrative_engine._update_narrative() to blend the centroid.
-    Returns an empty list if the narrative is not found.
+    Prefer passing the embedding from query_nearest() results to avoid
+    this extra round-trip.  Kept for backwards compatibility.
     """
     result = collection.get(ids=[narrative_id], include=["embeddings"])
     if not result["ids"]:
