@@ -31,25 +31,38 @@ const MOCK_DATA = {
   pipeline: { stories_ingested: 14092, narratives_created: 18, narratives_updated: 241, queue_size: 14, errors: 0 }
 };
 
-async function fetchJSON(path) {
+async function fetchJSON(path, timeoutMs = 10_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${API}${path}`);
-    if (!res.ok) throw new Error("API failed");
+    const res = await fetch(`${API}${path}`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   } catch (e) {
+    clearTimeout(timer);
     return handleMockMode(path);
   }
 }
 
-async function postJSON(path, body) {
+async function postJSON(path, body, timeoutMs = 15_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`${API}${path}`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      signal: controller.signal,
     });
-    if (!res.ok) throw new Error("API failed");
+    clearTimeout(timer);
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || `HTTP ${res.status}`);
+    }
     return res.json();
   } catch (e) {
+    clearTimeout(timer);
     isMockMode = true;
+    console.warn(`POST ${path} failed:`, e.message);
     return {
       action: "created",
       narrative_name: body.headline?.slice(0, 30) + " Trend" || "Unknown Output",
@@ -211,26 +224,22 @@ let currentChartRange = "1d";
 let chartOffset = 0;
 
 async function updateRiskChart() {
-  // Mock logic to handle ranges and offsets
-  let windowSize = 24;
-  if (currentChartRange === "1m") windowSize = 24 * 30;
-  if (currentChartRange === "1y") windowSize = 24 * 365;
-  if (currentChartRange === "ytd") windowSize = 24 * 90; // Approx 3 months
+  const windowHours = { "1d": 24, "1m": 720, "1y": 8760, "ytd": 2160 }[currentChartRange] ?? 24;
 
-  // Create mock history based on range
-  const history = Array.from({ length: 24 }, (_, i) => {
-    let base = 0.5;
-    if (currentChartRange === "1m") base = 0.4;
-    if (currentChartRange === "1y") base = 0.35;
-    if (currentChartRange === "ytd") base = 0.3;
-    // Add offset modification to make pages look different
-    const pointRisk = Math.max(0, Math.min(1, base + Math.random() * 0.4 + (chartOffset * 0.05)));
+  // Fetch real history from backend; fall back to mock on failure
+  let history = [];
+  try {
+    const resp = await fetchJSON(`/risk/history?window=${windowHours}&resolution=100`);
+    history = resp.history ?? [];
+  } catch (_) {}
 
-    return {
-      timestamp: Date.now() / 1000 - (24 - i) * (windowSize / 24) * 3600 - (chartOffset * windowSize * 3600),
-      model_risk_index: pointRisk
-    };
-  });
+  if (history.length === 0) {
+    const base = { "1d": 0.5, "1m": 0.4, "1y": 0.35, "ytd": 0.3 }[currentChartRange] ?? 0.5;
+    history = Array.from({ length: 24 }, (_, i) => ({
+      timestamp: Date.now() / 1000 - (24 - i) * (windowHours / 24) * 3600,
+      model_risk_index: Math.max(0, Math.min(1, base + Math.random() * 0.4)),
+    }));
+  }
 
   const ctx = document.getElementById("risk-chart").getContext("2d");
 
@@ -439,19 +448,46 @@ function appendFeedItem(r) {
   while (feedEl.children.length > FEED_MAX_ITEMS) feedEl.removeChild(feedEl.lastChild);
 }
 
+let _sseRetryDelay = 1_000;
+let _sseRetryTimer = null;
+
 function initSSE() {
   const statusEl = document.getElementById("feed-status");
+  if (sseSource) { sseSource.close(); sseSource = null; }
+  if (_sseRetryTimer) { clearTimeout(_sseRetryTimer); _sseRetryTimer = null; }
+
   sseSource = new EventSource(`${API}/events/stream`);
 
   sseSource.addEventListener("message", e => {
-    const data = JSON.parse(e.data);
-    if (data.type === "connected") { statusEl.textContent = "Live Stream Active"; statusEl.style.color = "var(--risk-low)"; return; }
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+
+    if (data.type === "connected") {
+      _sseRetryDelay = 1_000; // reset backoff on successful connection
+      statusEl.textContent = "Live Stream Active";
+      statusEl.style.color = "var(--risk-low)";
+      // Recover from mock mode if backend is now reachable
+      if (isMockMode) {
+        isMockMode = false;
+        document.getElementById("mock-badge").style.display = "none";
+        document.getElementById("conn-status").textContent = "LIVE";
+        refreshDashboard();
+      }
+      return;
+    }
     if (data.type === "ingest") { appendFeedItem(data.result); refreshDashboard(); }
   });
 
   sseSource.addEventListener("error", () => {
     statusEl.innerHTML = `<i class="ph ph-warning-circle"></i> Disconnected`;
     statusEl.style.color = "var(--risk-high)";
+    sseSource.close();
+    sseSource = null;
+    // Exponential backoff: 1s → 2s → 4s → … → 30s max
+    _sseRetryTimer = setTimeout(() => {
+      _sseRetryDelay = Math.min(_sseRetryDelay * 2, 30_000);
+      initSSE();
+    }, _sseRetryDelay);
   });
 }
 
