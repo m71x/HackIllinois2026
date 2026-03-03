@@ -16,7 +16,7 @@ The Problem
 
   | Step | What happens |
   |------|-------------|
-  | **Scrape** | 90+ RSS feeds + NewsAPI polled every 2 minutes |
+  | **Scrape** | 5000+ RSS feeds + NewsAPI polled every 2 minutes |
   | **Embed** | Each headline → 384-dim semantic vector on Modal T4 GPU |
   | **Route** | Cosine similarity matches story to nearest narrative (threshold 0.40) |
   | **Score** | Surprise + Impact heuristics updated via exponential moving average |
